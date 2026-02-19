@@ -181,7 +181,7 @@ if __name__ == "__main__":
         get_config_values("qb-ds", "input_cell_deactivation_timeout")
         get_config_values("arq-gp", "target_reservation_cost_linear")
         get_config_values("arq-gp", "target_reservation_cost_quad")
-        st.session_state.barcode_sim_instances = (len(next(os.walk(st.session_state.current_path + "qb-barcode-scanner-simulator/7.1.0-22-04/instances"))[1]))
+        #st.session_state.barcode_sim_instances = (len(next(os.walk(st.session_state.current_path + "qb-barcode-scanner-simulator/7.1.0-22-04/instances"))[1]))
 
         if st.session_state.testing_on_server == True:
             if st.button("Disconnect from Server", type="primary"):
