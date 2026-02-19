@@ -31,7 +31,12 @@ def get_config_values(application, parameter):
 
     PATH = st.session_state.current_path + application + "/config.yaml"
 
-    with open(PATH, "r") as ExistingYAML:
+    if st.session_state.connect_to_server == True:
+        file = st.session_state.sftp.open(PATH, "r")
+    else:
+        file = open(PATH, "r")
+  
+    with file as ExistingYAML:
         data = yaml.load(ExistingYAML)
         st.session_state[parameter] = data[parameter]
 
@@ -40,11 +45,16 @@ def adjust_server_configs(application, parameter, value):
     yaml.preserve_quotes = True
 
     PATH = st.session_state.current_path + application + "/config.yaml"
-    with open(PATH, "r") as ExistingYAML:
+    if st.session_state.connect_to_server == True:
+        file = st.session_state.sftp.open(PATH, "r")
+    else:
+        file = open(PATH, "r")
+  
+    with file as ExistingYAML:
         data = yaml.load(ExistingYAML)
         data[parameter] = value
     
-    with open(PATH, "w") as NewYAML:
+    with file as ExistingYAML:
         yaml.dump(data, NewYAML)
 
 def get_barcode_sim_values(count):
@@ -52,13 +62,18 @@ def get_barcode_sim_values(count):
     yaml.preserve_quotes = True
 
     value = []
-
     PATH = st.session_state.current_path + "qb-barcode-scanner-simulator" + "/7.1.0-22-04/instances/" + count + "/config_" + count + ".yaml"
-    with open(PATH, "r") as ExistingYAML:
+
+    if st.session_state.connect_to_server == True:
+        file = st.session_state.sftp.open(PATH, "r")
+    else:
+        file = open(PATH, "r")
+  
+    with file as ExistingYAML:
         data = yaml.load(ExistingYAML)
         value.append(data["range_start"])
         value.append(data["range_end"])
-    
+        
     return value
 
 def adjust_barcode_sim(count, value):
@@ -107,6 +122,8 @@ if __name__ == "__main__":
 
     if "server" not in st.session_state:
         st.session_state.server = None
+    if "sftp not in st.session_state:
+        st.session_state.sftp = None
     if "password" not in st.session_state:
         st.session_state.password = ""
     if "should_rerun" not in st.session_state:
@@ -149,6 +166,7 @@ if __name__ == "__main__":
         if st.button("Connect to Server", type="primary"):
             try:
                 st.session_state.server = connect_to_server(st.session_state.password)
+                st.session_state.sftp = st.session_state.server.open_sftp()
                 st.session_state.should_rerun = True
             except Exception as e:
                 print(str(e))
