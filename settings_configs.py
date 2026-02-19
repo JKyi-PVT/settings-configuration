@@ -141,7 +141,7 @@ if __name__ == "__main__":
                 st.rerun()
             if right.button("Connect to server"):
                 st.session_state.testing_on_server = True
-                st.session_state.current_path = "/var/lib/appcenter/apps/"
+                st.session_state.current_path = "/home/var/lib/appcenter/apps/"
                 st.rerun()
 
     if st.session_state.server == None and st.session_state.testing_on_server == True:
