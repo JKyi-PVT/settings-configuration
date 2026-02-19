@@ -18,16 +18,6 @@ from ruamel.yaml import YAML
 # import traceback
 
 
-def connect_to_server(password):
-    print('Attempting connection: 192.168.9.2')
-    st.session_state.msg.toast('Attempting connection: 192.168.9.2')
-    server = paramiko.SSHClient()
-    server.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    server.connect('192.168.9.2', username='pvadmin', password=password)
-    print('Connected to Server.')
-    st.session_state.msg.toast('Connected to Server.')
-    return server
-
 def ensure_streamlit_config():
     user_config_dir = os.path.expanduser("~/.streamlit")
     bundled_config_dir = os.path.join(getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__))), ".streamlit")
