@@ -1,0 +1,60 @@
+# Instance Specific YAML format config file
+
+# TCP Connection parameters
+tcp_ip: 192.168.15.21
+tcp_port: 2001
+
+# Scan flow settings
+strict_scan_flow: true
+
+input_cell_deactivation_timeout: 30
+input_cell_deactivation_enabled: true
+
+# Customized cell map settings
+cell_map:
+  0: /input_gate_1/node_1
+  1: /input_gate_1/node_2
+  2: /input_gate_2/node_3
+  3: /input_gate_2/node_4
+
+peers:
+- id: qb_api
+  ip: 192.168.9.2
+  port: 6011
+  partition: pv
+  scope: PARTITION
+- id: qb_logic
+  ip: 192.168.9.2
+  port: 6017
+  partition: pv
+  scope: PARTITION
+- id: qb_storage
+  ip: 192.168.9.2
+  port: 6015
+  partition: pv
+  scope: PARTITION
+- id: qb_tcp_bridge
+  ip: 192.168.9.2
+  port: 6021
+  partition: pv
+  scope: PARTITION
+
+navigation:
+- id: input_gate_1
+  ip: 192.168.9.2
+  port: 4020
+- id: input_gate_2
+  ip: 192.168.9.2
+  port: 4060
+- id: output_gate_1
+  ip: 192.168.9.2
+  port: 4030
+- id: output_gate_2
+  ip: 192.168.9.2
+  port: 4050
+- id: output_gate_3
+  ip: 192.168.9.2
+  port: 4070
+- id: cross_gate_1
+  ip: 192.168.9.2
+  port: 4040
