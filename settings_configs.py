@@ -122,7 +122,7 @@ if __name__ == "__main__":
 
     if "server" not in st.session_state:
         st.session_state.server = None
-    if "sftp not in st.session_state:
+    if "sftp" not in st.session_state:
         st.session_state.sftp = None
     if "password" not in st.session_state:
         st.session_state.password = ""
