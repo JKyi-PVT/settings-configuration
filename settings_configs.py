@@ -1,21 +1,21 @@
 #!/usr/bin/python3
 
 import paramiko
-import time
-import threading
+# import time
+# import threading
 import streamlit as st
-import nmap
-from multiprocessing.pool import ThreadPool
-import io
+#import nmap
+#from multiprocessing.pool import ThreadPool
+#import io
 import os
 import requests
 import sys
 import shutil
-from stat import S_ISDIR, S_ISREG
-import datetime
+# from stat import S_ISDIR, S_ISREG
+# import datetime
 from ruamel.yaml import YAML
-import logging
-import traceback
+# import logging
+# import traceback
 
 
 def connect_to_server(password):
