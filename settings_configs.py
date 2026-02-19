@@ -31,7 +31,7 @@ def get_config_values(application, parameter):
 
     PATH = st.session_state.current_path + application + "/config.yaml"
 
-    if st.session_state.connect_to_server == True:
+    if st.session_state.testing_on_server == True:
         file = st.session_state.sftp.open(PATH, "r")
     else:
         file = open(PATH, "r")
@@ -45,7 +45,7 @@ def adjust_server_configs(application, parameter, value):
     yaml.preserve_quotes = True
 
     PATH = st.session_state.current_path + application + "/config.yaml"
-    if st.session_state.connect_to_server == True:
+    if st.session_state.testing_on_server == True:
         file = st.session_state.sftp.open(PATH, "r")
     else:
         file = open(PATH, "r")
@@ -64,7 +64,7 @@ def get_barcode_sim_values(count):
     value = []
     PATH = st.session_state.current_path + "qb-barcode-scanner-simulator" + "/7.1.0-22-04/instances/" + count + "/config_" + count + ".yaml"
 
-    if st.session_state.connect_to_server == True:
+    if st.session_state.testing_on_server == True:
         file = st.session_state.sftp.open(PATH, "r")
     else:
         file = open(PATH, "r")
