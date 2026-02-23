@@ -45,44 +45,41 @@ def adjust_server_configs(application):
 
 
 
-def get_barcode_sim_values(count):
-    yaml = YAML()
-    yaml.preserve_quotes = True
+# def get_barcode_sim_values(count):
+#     yaml = YAML()
+#     yaml.preserve_quotes = True
 
-    value = []
-    PATH = st.session_state.current_path + "qb-barcode-scanner-simulator" + "/7.1.0-22-04/instances/" + count + "/config_" + count + ".yaml"
+#     value = []
+#     PATH = st.session_state.current_path + "qb-barcode-scanner-simulator" + "/7.1.0-22-04/instances/" + count + "/config_" + count + ".yaml"
 
-    if st.session_state.testing_on_server == True:
-        file = st.session_state.sftp.open(PATH, "r")
-    else:
-        file = open(PATH, "r")
+#     if st.session_state.testing_on_server == True:
+#         file = st.session_state.sftp.open(PATH, "r")
+#     else:
+#         file = open(PATH, "r")
   
-    with file as ExistingYAML:
-        data = yaml.load(ExistingYAML)
-        value.append(data["range_start"])
-        value.append(data["range_end"])
-        
-    return value
+#     with file as ExistingYAML:
+#         data = yaml.load(ExistingYAML)
+#         value.append(data["range_start"])
+#         value.append(data["range_end"])
+        # 
+    # return value
 
-def adjust_barcode_sim(count, value):
+def adjust_barcode_sim():
     yaml = YAML()
     yaml.preserve_quotes = True
-
-    if st.session_state.testing_on_server == True:
-        file = st.session_state.sftp.open(PATH, "r")
-        newFile = st.session_state.sftp.open(PATH, "w")
-    else:
-        file = open(PATH, "r")
-        newFile = open(PATH, "w")
-
-    PATH = st.session_state.current_path + "qb-barcode-scanner-simulator" + "/7.1.0-22-04/instances/" + count + "/config_" + count + ".yaml"
-    with file as ExistingYAML:
-        data = yaml.load(ExistingYAML)
-        data["range_start"] = value[0]
-        data["range_end"] = value[1]
     
-    with newFile as NewYAML:
-        yaml.dump(data, NewYAML)
+    data = st.session_state.simulator_configs
+
+    for i in range(st.session_state.barcode_sim_instances):
+        path = st.session_state.current_path + "qb-barcode-scanner-simulator" + "/7.1.0-22-04/instances/" + f"{i+1}" + "/config_" + f"{i+1}" + ".yaml"
+        if st.session_state.testing_on_server == True:
+            file = st.session_state.sftp.open(path, 'w')
+        else:
+            file = open(path, 'w')
+        
+        current_file_data = st.session_state.simulator_configs[i]
+        with file:
+            yaml.dump(current_file_data, file)
 
 def get_all_active_robots(list_use):
     robots = requests.get('http://192.168.9.2:6019/enabled_robots').json()
@@ -156,6 +153,27 @@ def get_config_data():
     else:
         paths = os.walk(st.session_state.current_path + "qb-barcode-scanner-simulator/7.1.0-22-04/instances")
         st.session_state.barcode_sim_instances = (len(next(paths)[1]))
+    
+    simulator_files = {}
+    
+    for i in range (st.session_state.barcode_sim_instances):
+        yaml = YAML()
+        yaml.preserve_quotes = True
+
+        instance = i + 1
+
+        simulator_path = st.session_state.current_path + "qb-barcode-scanner-simulator/7.1.0-22-04/instances/" + f"{i+1}" + "/config_" + f"{i+1}"  + ".yaml"
+
+        if st.session_state.testing_on_server == True:
+            file = st.session_state.sftp.open(simulator_path, "r")
+        else:
+            file = open(simulator_path, "r")
+        
+        data = yaml.load(file)
+
+        simulator_files[i] = data
+
+    st.session_state.simulator_configs = simulator_files
 
 def turn_payload_detection(turn_on):
     if turn_on == True:
@@ -190,6 +208,8 @@ if __name__ == "__main__":
 
     if "configs" not in st.session_state:
         st.session_state.configs = None
+    if "simulator_configs" not in st.session_state:
+        st.session_state.simulator_configs = None
 
     if "awaiting_action" not in st.session_state:
         st.session_state.awaiting_action = None
@@ -324,11 +344,14 @@ if __name__ == "__main__":
 
             slider_buttons = []
             for i in range(st.session_state.barcode_sim_instances):
-                current_locations = get_barcode_sim_values(f"{i+1}")
-                slider_buttons += (st.slider(f"Barcode simulator {i+1}", 0, 181, current_locations, key=f"Barcode simulator {i+1}"), )
+                range_start = st.session_state.simulator_configs[i]["range_start"]
+                range_end = st.session_state.simulator_configs[i]["range_end"]
+                # current_locations = get_barcode_sim_values(f"{i+1}")
+                slider_buttons += (st.slider(f"Barcode simulator {i+1}", 0, 181, [range_start, range_end], key=f"Barcode simulator {i+1}"), )
+                st.session_state.simulator_configs[i]["range_start"] = slider_buttons[i][0]
+                st.session_state.simulator_configs[i]["range_end"] = slider_buttons[i][1]
             if tab2.button("Set simulator range"):
-                for i in range(st.session_state.barcode_sim_instances):
-                    adjust_barcode_sim(f"{i+1}", slider_buttons[i])
+                adjust_barcode_sim()
 
         with tab3:
             st.header("Robot Configurations", divider="red")
