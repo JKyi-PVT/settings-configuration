@@ -47,14 +47,16 @@ def adjust_server_configs(application, parameter, value):
     PATH = st.session_state.current_path + application + "/config.yaml"
     if st.session_state.testing_on_server == True:
         file = st.session_state.sftp.open(PATH, "r")
+        newFile = st.session_state.sftp.open(PATH, "w")
     else:
         file = open(PATH, "r")
+        newFile = open(PATH, "w")
   
     with file as ExistingYAML:
         data = yaml.load(ExistingYAML)
         data[parameter] = value
     
-    with file as ExistingYAML:
+    with newFile as NewYAML:
         yaml.dump(data, NewYAML)
 
 def get_barcode_sim_values(count):
@@ -80,13 +82,20 @@ def adjust_barcode_sim(count, value):
     yaml = YAML()
     yaml.preserve_quotes = True
 
+    if st.session_state.testing_on_server == True:
+        file = st.session_state.sftp.open(PATH, "r")
+        newFile = st.session_state.sftp.open(PATH, "w")
+    else:
+        file = open(PATH, "r")
+        newFile = open(PATH, "w")
+
     PATH = st.session_state.current_path + "qb-barcode-scanner-simulator" + "/7.1.0-22-04/instances/" + count + "/config_" + count + ".yaml"
-    with open(PATH, "r") as ExistingYAML:
+    with file as ExistingYAML:
         data = yaml.load(ExistingYAML)
         data["range_start"] = value[0]
         data["range_end"] = value[1]
     
-    with open(PATH, "w") as NewYAML:
+    with newFile as NewYAML:
         yaml.dump(data, NewYAML)
 
 def get_all_active_robots(list_use):
@@ -112,6 +121,40 @@ def connect_to_server(password):
     print('Connected to Server.')
     st.session_state.msg.toast('Connected to Server.')
     return server
+
+def get_config_data():
+    get_config_values("qb-ds", "input_cell_deactivation_timeout")
+    get_config_values("arq-gp", "target_reservation_cost_linear")
+    get_config_values("arq-gp", "target_reservation_cost_quad")
+    paths = None
+    if st.session_state.testing_on_server == True:
+
+        # The shell command to count directories.
+        # find: searches for entries
+        # -maxdepth 1: limits search to the current directory only
+        # -type d: searches for directories
+        # wc -l: counts the number of lines (each line is a directory name)
+        paths = st.session_state.current_path + "qb-barcode-scanner-simulator/7.1.0-22-04/instances"
+        command = f"find {paths} -maxdepth 1 -type d | wc -l"
+        
+        # Execute the command
+        stdin, stdout, stderr = st.session_state.server.exec_command(command)
+        
+        # Read the output and convert to an integer
+        count_str = stdout.read().decode('utf-8').strip()
+        count = int(count_str)
+        
+        # The 'find' command for the specified path will include the path itself 
+        # in the count, so we subtract 1 for the actual number of subdirectories.
+        st.session_state.barcode_sim_instances = count - 1
+    else:
+        paths = os.walk(st.session_state.current_path + "qb-barcode-scanner-simulator/7.1.0-22-04/instances")
+        st.session_state.barcode_sim_instances = (len(next(paths)[1]))
+
+def turn_payload_detection(turn_on):
+    if turn_on == True:
+        pass
+
 
     
 
@@ -144,8 +187,8 @@ if __name__ == "__main__":
         st.session_state.target_reservation_cost_linear = None
     if "target_reservation_cost_quad" not in st.session_state:
         st.session_state.target_reservation_cost_linear = None
-    # if "awaiting_action" not in st.session_state:
-    #     st.session_state.awaiting_action = None
+    if "awaiting_action" not in st.session_state:
+        st.session_state.awaiting_action = None
 
     if st.session_state.testing_on_server == None:
         st.header("Would you like to connect to a server or test on your personal device?")
@@ -178,16 +221,14 @@ if __name__ == "__main__":
         st.rerun()
 
     if st.session_state.server != None:
-        get_config_values("qb-ds", "input_cell_deactivation_timeout")
-        get_config_values("arq-gp", "target_reservation_cost_linear")
-        get_config_values("arq-gp", "target_reservation_cost_quad")
-        #st.session_state.barcode_sim_instances = (len(next(os.walk(st.session_state.current_path + "qb-barcode-scanner-simulator/7.1.0-22-04/instances"))[1]))
 
-        if st.session_state.testing_on_server == True:
-            if st.button("Disconnect from Server", type="primary"):
-                st.session_state.awaiting_action = "disconnect"
-            if st.session_state.awaiting_action == "disconnect":
-                disconnect_confirmation()
+        get_config_data()
+        
+        # if st.session_state.testing_on_server == True:
+        #     if st.button("Disconnect from Server", type="primary"):
+        #         st.session_state.awaiting_action = "disconnect"
+        #     if st.session_state.awaiting_action == "disconnect":
+        #         disconnect_confirmation()
             
         
         tab1, tab2, tab3= st.tabs(["Server and Robot Applications", "Server Configs", "Robot Configs"])
@@ -237,29 +278,29 @@ if __name__ == "__main__":
                     qbStorage = st.toggle("qb-storage", label_visibility="hidden")
                     qbTCPBridge = st.toggle("qb-tcp-bridge", label_visibility="hidden")
                     systemPortal = st.toggle("system-portal", label_visibility="hidden")
-            with right:
-                text, active, disable = st.columns([0.2,0.3,0.3])
-                with text:
-                    st.subheader(" ")
-                    st.write("robot-manager")
-                    st.write("robot-diagnostics")
-                    st.write("robot-sorting-moduble")
-                    st.write("robot-diagnostics-bridge")
-                    st.write("task-queue")
-                with active:
-                    st.subheader("Activate/Deactivate")
-                    arqFipp = st.toggle("activate-robot-manager", label_visibility="collapsed")
-                    arqGp = st.toggle("activate-robot-diagnostics", label_visibility="hidden")
-                    deviceStorage = st.toggle("activate-robot-sorting-module", label_visibility="hidden")
-                    qbAPI = st.toggle("activate-robot-dianostics-bridge", label_visibility="hidden")
-                    qbBarcodeSim = st.toggle("activate-task-queue", label_visibility="hidden")
-                with disable:
-                    st.subheader("Enable/Disable")
-                    arqFipp = st.toggle("robot-manager", label_visibility="collapsed")
-                    arqGp = st.toggle("robot-diagnostics", label_visibility="hidden")
-                    deviceStorage = st.toggle("robot-sorting-module", label_visibility="hidden")
-                    qbAPI = st.toggle("robot-dianostics-bridge", label_visibility="hidden")
-                    qbBarcodeSim = st.toggle("task-queue", label_visibility="hidden")
+            # with right:
+            #     text, active, disable = st.columns([0.2,0.3,0.3])
+            #     with text:
+            #         st.subheader(" ")
+            #         st.write("robot-manager")
+            #         st.write("robot-diagnostics")
+            #         st.write("robot-sorting-moduble")
+            #         st.write("robot-diagnostics-bridge")
+            #         st.write("task-queue")
+            #     with active:
+            #         st.subheader("Activate/Deactivate")
+            #         arqFipp = st.toggle("activate-robot-manager", label_visibility="collapsed")
+            #         arqGp = st.toggle("activate-robot-diagnostics", label_visibility="hidden")
+            #         deviceStorage = st.toggle("activate-robot-sorting-module", label_visibility="hidden")
+            #         qbAPI = st.toggle("activate-robot-dianostics-bridge", label_visibility="hidden")
+            #         qbBarcodeSim = st.toggle("activate-task-queue", label_visibility="hidden")
+            #     with disable:
+            #         st.subheader("Enable/Disable")
+            #         arqFipp = st.toggle("robot-manager", label_visibility="collapsed")
+            #         arqGp = st.toggle("robot-diagnostics", label_visibility="hidden")
+            #         deviceStorage = st.toggle("robot-sorting-module", label_visibility="hidden")
+            #         qbAPI = st.toggle("robot-dianostics-bridge", label_visibility="hidden")
+            #         qbBarcodeSim = st.toggle("task-queue", label_visibility="hidden")
                     
         with tab2:
             st.header("Server Configurations", divider="red")
@@ -276,11 +317,11 @@ if __name__ == "__main__":
                 adjust_server_configs("arq-gp", "target_reservation_cost_quad", cost_quad)
 
             slider_buttons = []
-            for i in range(barcode_sim_instances):
+            for i in range(st.session_state.barcode_sim_instances):
                 current_locations = get_barcode_sim_values(f"{i+1}")
                 slider_buttons += (st.slider(f"Barcode simulator {i+1}", 0, 181, current_locations, key=f"Barcode simulator {i+1}"), )
             if tab2.button("Set simulator range"):
-                for i in range(barcode_sim_instances):
+                for i in range(st.session_state.barcode_sim_instances):
                     adjust_barcode_sim(f"{i+1}", slider_buttons[i])
 
         with tab3:
