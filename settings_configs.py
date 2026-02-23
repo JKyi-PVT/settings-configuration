@@ -305,7 +305,7 @@ if __name__ == "__main__":
         with tab2:
             st.header("Server Configurations", divider="red")
             st.subheader("Infeed timeout")
-            timeout = st.slider("Infeed timeout(sec)", 30, 120, st.session_state.input_cell_deactivation_timeout)
+            timeout = st.slider("Infeed timeout(sec)", 30.0, 120.0, float(st.session_state.input_cell_deactivation_timeout))
             if tab2.button("Set infeed timeout"):
                 adjust_server_configs("qb-ds", "input_cell_deactivation_timeout", timeout)
 
