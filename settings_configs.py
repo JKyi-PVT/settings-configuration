@@ -17,6 +17,7 @@ from ruamel.yaml import YAML
 # import logging
 # import traceback
 
+config_files = ["appcenter", "arq-fipp", "arq-gp", "device-configurator", "device-storage", "qb-api", "qb-barcode-scanner-simulator", "qb-ds", "qb-frontend", "qb-logic", "qb-storage", "qb-tcp-bridge", "system-portal", "task-queue"]
 
 def ensure_streamlit_config():
     user_config_dir = os.path.expanduser("~/.streamlit")
@@ -25,39 +26,24 @@ def ensure_streamlit_config():
     shutil.copyfile(os.path.join(bundled_config_dir, "config.toml"),
                     os.path.join(user_config_dir, "config.toml"))
 
-def get_config_values(application, parameter):
+
+
+def adjust_server_configs(application):
     yaml = YAML()
     yaml.preserve_quotes = True
 
-    PATH = st.session_state.current_path + application + "/config.yaml"
+    data = st.session_state.configs[application]
 
+    path = st.session_state.current_path + application + "/config.yaml"
     if st.session_state.testing_on_server == True:
-        file = st.session_state.sftp.open(PATH, "r")
+        file = st.session_state.sftp.open(path, "w")
     else:
-        file = open(PATH, "r")
-  
-    with file as ExistingYAML:
-        data = yaml.load(ExistingYAML)
-        st.session_state[parameter] = data[parameter]
+        file = open(path, "w")
 
-def adjust_server_configs(application, parameter, value):
-    yaml = YAML()
-    yaml.preserve_quotes = True
+    with file:
+        yaml.dump(data, file)
 
-    PATH = st.session_state.current_path + application + "/config.yaml"
-    if st.session_state.testing_on_server == True:
-        file = st.session_state.sftp.open(PATH, "r")
-        newFile = st.session_state.sftp.open(PATH, "w")
-    else:
-        file = open(PATH, "r")
-        newFile = open(PATH, "w")
-  
-    with file as ExistingYAML:
-        data = yaml.load(ExistingYAML)
-        data[parameter] = value
-    
-    with newFile as NewYAML:
-        yaml.dump(data, NewYAML)
+
 
 def get_barcode_sim_values(count):
     yaml = YAML()
@@ -123,9 +109,29 @@ def connect_to_server(password):
     return server
 
 def get_config_data():
-    get_config_values("qb-ds", "input_cell_deactivation_timeout")
-    get_config_values("arq-gp", "target_reservation_cost_linear")
-    get_config_values("arq-gp", "target_reservation_cost_quad")
+
+    configs = {}
+    for file in config_files:
+        yaml = YAML()
+        yaml.preserve_quotes = True
+    
+        path = st.session_state.current_path + file + "/config.yaml"
+        if st.session_state.testing_on_server == True:
+            yaml_file = st.session_state.sftp.open(path, "r")
+        else:
+            yaml_file = open(path, "r")
+        
+        with yaml_file:
+            data = yaml.load(yaml_file)
+        
+        configs[file] = data
+
+    if configs:
+        st.session_state.configs = configs
+    else:
+        print("No data found")
+    
+    
     paths = None
     if st.session_state.testing_on_server == True:
 
@@ -181,12 +187,10 @@ if __name__ == "__main__":
         st.session_state.current_path = None
     if "msg" not in st.session_state:
         st.session_state.msg =  st.toast('Welcome to the Prime Vision Technology Settings/Configuration Application')
-    if "input_cell_deactivation_timeout" not in st.session_state:
-        st.session_state.input_cell_deactivation_timeout = None
-    if "target_reservation_cost_linear" not in st.session_state:
-        st.session_state.target_reservation_cost_linear = None
-    if "target_reservation_cost_quad" not in st.session_state:
-        st.session_state.target_reservation_cost_linear = None
+
+    if "configs" not in st.session_state:
+        st.session_state.configs = None
+
     if "awaiting_action" not in st.session_state:
         st.session_state.awaiting_action = None
 
@@ -305,16 +309,18 @@ if __name__ == "__main__":
         with tab2:
             st.header("Server Configurations", divider="red")
             st.subheader("Infeed timeout")
-            timeout = st.slider("Infeed timeout(sec)", 30.0, 120.0, float(st.session_state.input_cell_deactivation_timeout))
+            timeout = st.slider("Infeed timeout(sec)", 30.0, 120.0, float(st.session_state.configs["qb-ds"]["input_cell_deactivation_timeout"]))
+            st.session_state.configs["qb-ds"]["input_cell_deactivation_timeout"] = timeout
             if tab2.button("Set infeed timeout"):
-                adjust_server_configs("qb-ds", "input_cell_deactivation_timeout", timeout)
+                adjust_server_configs("qb-ds")
 
             st.subheader("Load balancing")
-            cost_linear = st.number_input("Target cost linear", 0.0, 20.0, st.session_state.target_reservation_cost_linear)
-            cost_quad = st.number_input("Target cost quad", 0.0, 20.0, st.session_state.target_reservation_cost_quad)
+            cost_linear = st.number_input("Target cost linear", 0.0, 20.0, st.session_state.configs["arq-gp"]["target_reservation_cost_linear"])
+            cost_quad = st.number_input("Target cost quad", 0.0, 20.0, st.session_state.configs["arq-gp"]["target_reservation_cost_quad"])
+            st.session_state.configs["arq-gp"]["target_reservation_cost_linear"] = cost_linear
+            st.session_state.configs["arq-gp"]["target_reservation_cost_quad"] = cost_quad
             if tab2.button("Set load balancing parameters"):
-                adjust_server_configs("arq-gp", "target_reservation_cost_linear", cost_linear)
-                adjust_server_configs("arq-gp", "target_reservation_cost_quad", cost_quad)
+                adjust_server_configs("arq-gp")
 
             slider_buttons = []
             for i in range(st.session_state.barcode_sim_instances):
