@@ -16,7 +16,9 @@ import shutil
 from ruamel.yaml import YAML
 # import logging
 # import traceback
+import json
 
+LIST = [50,60,70,80,90]
 config_files = ["appcenter", "arq-fipp", "arq-gp", "device-configurator", "device-storage", "qb-api", "qb-barcode-scanner-simulator", "qb-ds", "qb-frontend", "qb-logic", "qb-storage", "qb-tcp-bridge", "system-portal", "task-queue"]
 
 def ensure_streamlit_config():
@@ -81,19 +83,15 @@ def adjust_barcode_sim():
         with file:
             yaml.dump(current_file_data, file)
 
-def get_all_active_robots(list_use):
+def get_all_active_robots():
     robots = requests.get('http://192.168.9.2:6019/enabled_robots').json()
     connected_ids = [robot_id for robot_id, data in robots.items() if data.get("connected")]
     robot_ip_list = []
     for connected_id in connected_ids:
-        if list_use:
-            robot_ip = int(connected_id[2:])
-        else:
-            robot_ip = '192.168.8.' + str(int(connected_id[2:]) + 30)
-        robot_ip_list.append(robot_ip)
+        robot_ip_list.append = int(connected_id[2:])
     print("Found Robots: " + str(robot_ip_list))
     st.session_state.msg.toast("Found Robots: " + str(robot_ip_list))
-    return robot_ip_list
+    st.session_state.ip_list = robot_ip_list
 
 def connect_to_server(password):
     print('Attempting connection: 192.168.9.2')
@@ -175,11 +173,97 @@ def get_config_data():
 
     st.session_state.simulator_configs = simulator_files
 
-def turn_payload_detection(turn_on):
-    if turn_on == True:
-        pass
+def get_scenario_values():
+
+    if not st.session_state.testing_on_server:
+        st.session_state.floorplan_path = st.session_state.current_path + "/flooplans/floorplan.json"
+        st.session_state.sortplan_path = st.session_state.current_path + "/sortplans/sortplan_no_mirror.json"
+    else:
+        qb_storage = st.session_state.simulator_configs["qb-storage"]
+        if "path" not in qb_storage["floorplan_file"]:
+            st.session_state.floorplan_path = qb_storage["floorplan_file"]
+        else:
+            st.session_state.floorplan_path = qb_storage["floorplan_file"]["path"]
+        if "path" not in qb_storage["sortplan_file"]:
+            st.session_state.sortplan_path = qb_storage["sortplan_file"]
+        else:
+            st.session_state.sortplan_path = qb_storage["sortplan_file"]["path"]
+
+    with open(st.session_state.floorplan_path, 'r') as floorplan_file:
+        st.session_state.floorplan_data = json.load(floorplan_file)
+        first_value = next(iter(st.session_state.floorplan_data["zones"]))
+        st.session_state.max_velocity = float(first_value["constraints"]["max_velocity"])
+    
+    with open(st.session_state.sortplan_path, 'r') as sortplan_file:
+        data = json.load(sortplan_file)
+        for node in data:
+            value = data[node].get("sub_directions")
+            if value is None:
+                continue
+            else:
+                bin_number = list(data[node]["sub_directions"].keys())[0]
+                if bin_number == 'reject':
+                    bin_number = 0
+                if int(bin_number) > st.session_state.max_destinations:
+                    st.session_state.max_destinations = int(bin_number)
+
+def get_robot_configs(server):
+    robot_ip_list = st.session_state.ip_list
+    robot_sftp_list = {}
+    for number in robot_ip_list:
+        robot_client = paramiko.SSHClient()
+        robot_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        robot_ip = "192.168.8." + str(number + 30)
+
+        transport = server.get_transport()
+        local_addr = ('127.0.0.1', 22)
+        dest_addr = (robot_ip, 22)
+        try:
+            print('Attempting connection: ' + robot_ip)
+            st.session_state.msg.toast('Attempting connection: ' + robot_ip)
+            channel = transport.open_channel("direct-tcpip", dest_addr, local_addr)
+            robot_client.connect('localhost', port=1234, username='pvadmin', password=st.session_state.password, sock=channel, banner_timeout=200)
+            sftp = robot_client.open_sftp()
+            robot_sftp_list[robot_ip] = sftp
+        except Exception as e:
+            print(str(e))
+            print("Could not connect to robot: " + robot_ip)
+            st.session_state.msg.toast("Could not connect to robot: " + robot_ip)
+            continue
+        yaml = YAML()
+        yaml.preserve_quotes = True
+    
+        path = "var/lib/appcenter/apps/robot_sorting_module/config.yaml"
+        with sftp.open(path, "r") as file:
+            data = yaml.load(file)
+        st.session_state.sorting_module_configs[robot_ip] = data
+    st.session_state.robot_sftp_list = robot_sftp_list 
+
+def adjust_speed(value):
+
+    with open(st.session_state.floorplan_path, 'w') as file:
+        data = st.session_state.floorplan_data
+        for zone in data["zones"]:
+            zone["constraints"]["max_velocity"] = value
+        # file.seek(0)
+        json.dump(data, file, indent=2)
+        # file.truncate()
+    
 
 
+def turn_payload_detection(turn_on, robot_list):
+    for robot in robot_list:
+        robot_ip = '192.168.8.' + str(int(robot + 30))
+        data = st.session_state.sorting_module_configs[robot_ip]
+        data["payload_detection"] = turn_on
+
+        yaml = YAML()
+        yaml.preseve_quotes = True
+
+        with st.session_state.robot_sftp_list[robot_ip].open("/var/lib/appcenter/apps/robot-sorting-module/config.yaml", 'w') as file:
+            yaml.dump(data, file)
+
+            
     
 
 if __name__ == "__main__":
@@ -187,30 +271,50 @@ if __name__ == "__main__":
     st.set_page_config(page_title='PVT Settings/Configurations', layout = 'wide', initial_sidebar_state = 'auto')
     st.title("Prime Vision Technology Settings/Configuration UI")
 
+    # Server related
     if "server" not in st.session_state:
         st.session_state.server = None
     if "sftp" not in st.session_state:
         st.session_state.sftp = None
     if "password" not in st.session_state:
-        st.session_state.password = ""
-    if "should_rerun" not in st.session_state:
-        st.session_state.should_rerun = False
-    if "map_file" not in st.session_state:
-        st.session_state.map_file = None
-    if "barcode_sim_instances" not in st.session_state:
-        st.session_state.barcode_sim_instances = None
+        st.session_state.password = ""    
     if "testing_on_server" not in st.session_state:
         st.session_state.testing_on_server = None
     if "current_path" not in st.session_state:
         st.session_state.current_path = None
-    if "msg" not in st.session_state:
-        st.session_state.msg =  st.toast('Welcome to the Prime Vision Technology Settings/Configuration Application')
+    if "floorplan_path" not in st.session_state:
+        st.session_state.floorplan_path = None
+    if "sortplan_path" not in st.session_state:
+        st.session_state.sortplan_path = None
 
+
+    # Server configs
     if "configs" not in st.session_state:
         st.session_state.configs = None
     if "simulator_configs" not in st.session_state:
         st.session_state.simulator_configs = None
+    if "floorplan_data" not in st.session_state:
+        st.session_state.floorplan_data = None
+    if "barcode_sim_instances" not in st.session_state:
+        st.session_state.barcode_sim_instances = None
+    if "max_destinations" not in st.session_state:
+        st.session_state.max_destinations = 0
+    if "max_velocity" not in st.session_state:
+        st.session_state.max_velocity = 0
 
+    # Robot configs
+    if "robot_sftp_list" not in st.session_state:
+        st.session_state.robot_sftp_list = None
+    if "ip_list" not in st.session_state:
+        st.session_state.ip_list = None
+    if "sorting_module_configs" not in st.session_state:
+        st.session_state.sorting_module_configs = None
+
+    # Misc streamlit values
+    if "should_rerun" not in st.session_state:
+        st.session_state.should_rerun = False
+    if "msg" not in st.session_state:
+        st.session_state.msg =  st.toast('Welcome to the Prime Vision Technology Settings/Configuration Application')
     if "awaiting_action" not in st.session_state:
         st.session_state.awaiting_action = None
 
@@ -222,6 +326,7 @@ if __name__ == "__main__":
                 st.session_state.server = 1
                 st.session_state.testing_on_server = False
                 st.session_state.current_path = "/home/justin/PVT-Repos/settings-configuration/Indy II Configs and Envs/"
+                st.session_state.ip_list = LIST
                 st.rerun()
             if right.button("Connect to server"):
                 st.session_state.testing_on_server = True
@@ -247,6 +352,7 @@ if __name__ == "__main__":
     if st.session_state.server != None:
 
         get_config_data()
+        get_scenario_values()
         
         # if st.session_state.testing_on_server == True:
         #     if st.button("Disconnect from Server", type="primary"):
@@ -347,7 +453,7 @@ if __name__ == "__main__":
                 range_start = st.session_state.simulator_configs[i]["range_start"]
                 range_end = st.session_state.simulator_configs[i]["range_end"]
                 # current_locations = get_barcode_sim_values(f"{i+1}")
-                slider_buttons += (st.slider(f"Barcode simulator {i+1}", 0, 181, [range_start, range_end], key=f"Barcode simulator {i+1}"), )
+                slider_buttons += (st.slider(f"Barcode simulator {i+1}", 0, st.session_state.max_destinations, [range_start, range_end], key=f"Barcode simulator {i+1}"), )
                 st.session_state.simulator_configs[i]["range_start"] = slider_buttons[i][0]
                 st.session_state.simulator_configs[i]["range_end"] = slider_buttons[i][1]
             if tab2.button("Set simulator range"):
@@ -355,10 +461,19 @@ if __name__ == "__main__":
 
         with tab3:
             st.header("Robot Configurations", divider="red")
+            # list = [5, 6, 7, 8, 9, 10]
+            i = 0
+            if st.button("Connect to robots"):
+                if st.session_state.testing_on_server:
+                    list = get_all_active_robots()
+                else:
+                    
+                    st.session_state.ip_list.append(i+1)
+                    print("Before hitting the button" + str(st.session_state.ip_list))
             st.subheader("Select robots")
             all_robots = st.toggle("Select all robots")
-            # select_robots = st.multiselect(get_all_active_robots(True))
-            select_robots = st.multiselect("Select which robots you want to configure" , [50,60,70])
+            select_robots = st.multiselect("Select which robots you want to configure" , st.session_state.ip_list)
+
             st.subheader("Payload detection")
             left, right = st.columns(2)
             with left:
@@ -368,6 +483,8 @@ if __name__ == "__main__":
                 if right.button("Turn off payload detection"):
                     turn_payload_detection(False, select_robots)
             st.subheader("Adjust robot speed")
-            adjust_speed = st.slider("Adjust robot speed", 0.5, 1.5, 1.0)
+            speed = st.slider("Adjust robot speed", 0.5, 1.5, st.session_state.max_velocity)
+            if tab3.button("adjust_speed"):
+                adjust_speed(speed)
         
         

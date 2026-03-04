@@ -1,0 +1,143 @@
+## Project Overview
+
+This is a **Streamlit-based GUI tool** called the **Prime Vision Technology Settings/Configuration UI**. It allows engineers to remotely (or locally) view and modify YAML configuration files for a robotic sorting system — likely an automated parcel/package sorting conveyor system. It connects to a server via SSH/SFTP or runs locally against a file directory.
+
+---
+
+## File-by-File Breakdown
+
+---
+
+### `settings_configs.py` — Main Application
+
+This is the entire application. It handles connection, data loading, UI rendering, and config writing.
+
+**Imports & Global State**
+- `paramiko` — SSH/SFTP client for connecting to the remote server
+- `streamlit` — web UI framework
+- `requests` — HTTP calls to a local robot management API
+- `ruamel.yaml` — YAML read/write that preserves comments and formatting (unlike PyYAML which strips them)
+- `config_files` — a hardcoded list of 14 application names whose `config.yaml` files will be loaded
+
+---
+
+**`ensure_streamlit_config()`**
+Copies a bundled `.streamlit/config.toml` into the user's home directory. This is relevant when the app is packaged as a standalone executable (PyInstaller `_MEIPASS` path), ensuring Streamlit finds its config even outside a dev environment.
+
+---
+
+**`adjust_server_configs(application)`**
+Writes a modified config back to disk (or remote via SFTP) for a given application name. It pulls the in-memory data from `st.session_state.configs[application]` and serializes it back to the correct `config.yaml` path using `ruamel.yaml` to preserve formatting.
+
+---
+
+**`adjust_barcode_sim()`**
+Same concept as above but specifically for the barcode scanner simulator. It iterates over all simulator instances and writes each one's config to its corresponding instance path: `.../qb-barcode-scanner-simulator/7.1.0-22-04/instances/{N}/config_{N}.yaml`
+
+---
+
+**`get_all_active_robots(list_use)`**
+Makes an HTTP GET to `http://192.168.9.2:6019/enabled_robots` to retrieve which robots are currently connected. Depending on `list_use`, it returns either a list of integer robot IDs or full IP addresses (`192.168.8.X`). Results are toasted to the UI and printed.
+
+---
+
+**`connect_to_server(password)`**
+Opens an SSH connection to `192.168.9.2` as user `pvadmin` using the provided password via Paramiko. Returns the SSH client object and stores it in session state. Auto-accepts unknown host keys (not production-safe but appropriate for a LAN tool).
+
+---
+
+**`get_config_data()`**
+The main data loading function. Does two things:
+
+1. **Loads all 14 application configs** from `config_files` into `st.session_state.configs` as a dict keyed by app name. Each file is read from either the SFTP remote path or the local filesystem.
+
+2. **Loads barcode simulator instance configs** — first counts how many instance subdirectories exist (via `find ... | wc -l` on the server, or `os.walk` locally), then reads each instance's YAML into `st.session_state.simulator_configs` as a dict keyed by zero-based index.
+
+---
+
+**`turn_payload_detection(turn_on)`**
+Stub function — body is empty (`pass`). Intended to send a command to robots to enable/disable their payload detection sensors. Not yet implemented.
+
+---
+
+**`__main__` block — UI**
+
+Runs when the script is executed directly. Sets up the Streamlit page and drives the entire UI flow:
+
+**Session state initialization** — initializes all required keys: `server`, `sftp`, `password`, `map_file`, `barcode_sim_instances`, `testing_on_server`, `current_path`, `configs`, `simulator_configs`, `awaiting_action`, `msg`.
+
+**Connection screen** — if `testing_on_server` is `None`, presents two buttons: run locally (hardcoded path to a local dev directory) or connect to server. Sets `current_path` accordingly.
+
+**Password prompt** — if server mode is chosen but no connection exists yet, shows a password input and a connect button. On success, opens SFTP. On failure, shows an error.
+
+**Main UI (3 tabs)** — only rendered after a successful connection or local mode selection:
+
+- **Tab 1 — Server and Robot Applications**: Shows a grid of toggles for activating/deactivating and enabling/disabling each server application. The robot apps section exists but is fully commented out. The toggles are rendered but not wired to any backend actions yet.
+
+- **Tab 2 — Server Configs**: Three configurable sections:
+  - *Infeed timeout* — slider (30–120s) wired to `qb-ds` config, saved with a button
+  - *Load balancing* — two number inputs for `target_reservation_cost_linear` and `target_reservation_cost_quad` in `arq-gp` config, saved with a button
+  - *Barcode simulator ranges* — dynamically generates one range slider per simulator instance (0–181), updating each instance's `range_start` and `range_end`, saved with a button
+
+- **Tab 3 — Robot Configs**: UI for selecting robots (toggle for all, multiselect hardcoded to `[50, 60, 70]`), payload detection on/off buttons (calling the unimplemented `turn_payload_detection`), and a speed slider (0.5–1.5, not yet wired to any save action).
+
+---
+
+### `config.yaml` — Sample Application Config
+
+A representative YAML config for one of the 14 applications (appears to be `qb-ds` based on `input_cell_deactivation_timeout`). Contains:
+- TCP connection info (`tcp_ip`, `tcp_port`)
+- Scan flow flags (`strict_scan_flow`, `input_cell_deactivation_timeout`, `input_cell_deactivation_enabled`)
+- A `cell_map` mapping integer indices to node paths on input gates
+- A `peers` list defining other services this app communicates with (ports, IDs, partition info)
+- A `navigation` list defining gate IDs and their ports on the server IP
+
+---
+
+### `config_revision_test.yaml` — Test Config
+
+Identical structure to `config.yaml` but with `input_cell_deactivation_timeout: 30` instead of `70`, and the `peers`/`navigation` lists use slightly different indentation (no leading spaces). Appears to be a file used to test that YAML round-trip read/write works correctly without corrupting formatting.
+
+---
+
+### `requirements.txt` — Python Dependencies
+
+Four packages:
+- `paramiko==2.12.0` — SSH/SFTP
+- `PyYAML==6.0.1` — listed but the app actually uses `ruamel.yaml` (likely a leftover or used transitively)
+- `requests==2.31.0` — robot API HTTP calls
+- `streamlit==1.51.0` — UI framework
+
+Note: `ruamel.yaml` is used in the code but absent from this file — this would cause an install failure on a fresh environment.
+
+---
+
+### `.streamlit/config.toml` — Streamlit Configuration
+
+Configures the Streamlit server behavior:
+- Light theme
+- Headless mode (no browser auto-open — appropriate for running on a server or packaging)
+- Auto-reruns on file save (dev convenience)
+- CORS and XSRF protection disabled (appropriate for LAN-only internal tool)
+- Usage stats collection disabled
+
+---
+
+### `.gitignore`
+
+Excludes the `Indy II Configs and Envs/` directory from version control. This is the local dev path used when running in personal device mode — it contains real machine config files that shouldn't be committed.
+
+---
+
+### `README.md` — Setup Instructions
+
+Two-step instructions: activate the included `myenv` virtual environment with `source myenv/bin/activate`, then run with `streamlit run settings_configs.py`.
+
+---
+
+## Key Observations
+
+- Several features are **partially or not implemented**: `turn_payload_detection`, robot tab save logic, and the robot apps toggle section are all stubs or commented out.
+- `ruamel.yaml` is **missing from `requirements.txt`** — this will break fresh installs.
+- Toggle widgets in Tab 1 are **rendered but not connected** to any SSH commands or state changes.
+- The app is tightly coupled to a specific network topology (`192.168.9.2`, `192.168.8.X` robot IPs) and a specific directory structure on the remote server.
