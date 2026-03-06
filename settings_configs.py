@@ -233,11 +233,12 @@ def get_robot_configs(server):
         yaml = YAML()
         yaml.preserve_quotes = True
     
-        path = "/var/lib/appcenter/apps/robot_sorting_module/config.yaml"
+        path = "/var/lib/appcenter/apps/robot-sorting-module/config.yaml"
         with sftp.open(path, "r") as file:
             data = yaml.load(file)
         st.session_state.sorting_module_configs[robot_ip] = data
-    st.session_state.robot_sftp_list = robot_sftp_list 
+    st.session_state.robot_sftp_list = robot_sftp_list
+    get_all_active_robots()
 
 def adjust_speed(value):
 
@@ -353,7 +354,6 @@ if __name__ == "__main__":
 
         get_config_data()
         get_scenario_values()
-        get_all_active_robots()
         get_robot_configs(st.session_state.server)
         
         
