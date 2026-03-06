@@ -306,7 +306,7 @@ if __name__ == "__main__":
     if "robot_sftp_list" not in st.session_state:
         st.session_state.robot_sftp_list = None
     if "ip_list" not in st.session_state:
-        st.session_state.ip_list = None
+        st.session_state.ip_list = {}
     if "sorting_module_configs" not in st.session_state:
         st.session_state.sorting_module_configs = {}
 
@@ -353,8 +353,9 @@ if __name__ == "__main__":
 
         get_config_data()
         get_scenario_values()
-        get_robot_configs(st.session_state.server)
         get_all_active_robots()
+        get_robot_configs(st.session_state.server)
+        
         
         # if st.session_state.testing_on_server == True:
         #     if st.button("Disconnect from Server", type="primary"):
