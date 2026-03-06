@@ -348,14 +348,13 @@ if __name__ == "__main__":
 
     if st.session_state.should_rerun == True:
         st.session_state.should_rerun = False
+        get_robot_configs(st.session_state.server)
         st.rerun()
 
     if st.session_state.server != None:
 
         get_config_data()
         get_scenario_values()
-        get_robot_configs(st.session_state.server)
-        
         
         # if st.session_state.testing_on_server == True:
         #     if st.button("Disconnect from Server", type="primary"):
@@ -469,6 +468,7 @@ if __name__ == "__main__":
             if st.button("Refresh robot list"):
                 if st.session_state.testing_on_server:
                     get_all_active_robots()
+                    get_robot_configs(st.session_state.server)
                 else:
                     
                     st.session_state.ip_list.append(i+1)
