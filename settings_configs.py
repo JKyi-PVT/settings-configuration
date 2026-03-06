@@ -189,12 +189,12 @@ def get_scenario_values():
         else:
             st.session_state.sortplan_path = qb_storage["sortplan_file"]["path"]
 
-    with st.session_state.open(st.session_state.floorplan_path, 'r') as floorplan_file:
+    with st.session_state.sftp.open(st.session_state.floorplan_path, 'r') as floorplan_file:
         st.session_state.floorplan_data = json.load(floorplan_file)
         first_value = next(iter(st.session_state.floorplan_data["zones"]))
         st.session_state.max_velocity = float(first_value["constraints"]["max_velocity"])
     
-    with st.session_state.openopen(st.session_state.sortplan_path, 'r') as sortplan_file:
+    with st.session_state.sftp.open(st.session_state.sortplan_path, 'r') as sortplan_file:
         data = json.load(sortplan_file)
         for node in data:
             value = data[node].get("sub_directions")
