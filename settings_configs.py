@@ -354,6 +354,7 @@ if __name__ == "__main__":
         get_config_data()
         get_scenario_values()
         get_robot_configs(st.session_state.server)
+        get_all_active_robots()
         
         # if st.session_state.testing_on_server == True:
         #     if st.button("Disconnect from Server", type="primary"):
