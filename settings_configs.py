@@ -340,7 +340,6 @@ if __name__ == "__main__":
             try:
                 st.session_state.server = connect_to_server(st.session_state.password)
                 st.session_state.sftp = st.session_state.server.open_sftp()
-                get_robot_configs(st.session_state.server)
                 st.session_state.should_rerun = True
             except Exception as e:
                 print(str(e))
@@ -465,7 +464,7 @@ if __name__ == "__main__":
             st.header("Robot Configurations", divider="red")
             # list = [5, 6, 7, 8, 9, 10]
             i = 0
-            if st.button("Refresh robot list"):
+            if st.button("Refresh data"):
                 if st.session_state.testing_on_server:
                     get_all_active_robots()
                     get_robot_configs(st.session_state.server)
