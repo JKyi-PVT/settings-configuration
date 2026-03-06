@@ -88,7 +88,7 @@ def get_all_active_robots():
     connected_ids = [robot_id for robot_id, data in robots.items() if data.get("connected")]
     robot_ip_list = []
     for connected_id in connected_ids:
-        robot_ip_list.append = int(connected_id[2:])
+        robot_ip_list.append(int(connected_id[2:]))
     print("Found Robots: " + str(robot_ip_list))
     st.session_state.msg.toast("Found Robots: " + str(robot_ip_list))
     st.session_state.ip_list = robot_ip_list
@@ -179,7 +179,7 @@ def get_scenario_values():
         st.session_state.floorplan_path = st.session_state.current_path + "/flooplans/floorplan.json"
         st.session_state.sortplan_path = st.session_state.current_path + "/sortplans/sortplan_no_mirror.json"
     else:
-        qb_storage = st.session_state.simulator_configs["qb-storage"]
+        qb_storage = st.session_state.configs["qb-storage"]
         if "path" not in qb_storage["floorplan_file"]:
             st.session_state.floorplan_path = qb_storage["floorplan_file"]
         else:
@@ -233,7 +233,7 @@ def get_robot_configs(server):
         yaml = YAML()
         yaml.preserve_quotes = True
     
-        path = "var/lib/appcenter/apps/robot_sorting_module/config.yaml"
+        path = "/var/lib/appcenter/apps/robot_sorting_module/config.yaml"
         with sftp.open(path, "r") as file:
             data = yaml.load(file)
         st.session_state.sorting_module_configs[robot_ip] = data
@@ -258,7 +258,7 @@ def turn_payload_detection(turn_on, robot_list):
         data["payload_detection"] = turn_on
 
         yaml = YAML()
-        yaml.preseve_quotes = True
+        yaml.preserve_quotes = True
 
         with st.session_state.robot_sftp_list[robot_ip].open("/var/lib/appcenter/apps/robot-sorting-module/config.yaml", 'w') as file:
             yaml.dump(data, file)
@@ -300,7 +300,7 @@ if __name__ == "__main__":
     if "max_destinations" not in st.session_state:
         st.session_state.max_destinations = 0
     if "max_velocity" not in st.session_state:
-        st.session_state.max_velocity = 0
+        st.session_state.max_velocity = 1.0
 
     # Robot configs
     if "robot_sftp_list" not in st.session_state:
@@ -308,7 +308,7 @@ if __name__ == "__main__":
     if "ip_list" not in st.session_state:
         st.session_state.ip_list = None
     if "sorting_module_configs" not in st.session_state:
-        st.session_state.sorting_module_configs = None
+        st.session_state.sorting_module_configs = {}
 
     # Misc streamlit values
     if "should_rerun" not in st.session_state:
@@ -384,30 +384,30 @@ if __name__ == "__main__":
                     st.write("system-portal")
                 with active:
                     st.subheader("Activate/Deactivate")
-                    arqFipp = st.toggle("activate-arq-fipp", label_visibility="collapsed")
-                    arqGp = st.toggle("activate-arq-qp", label_visibility="hidden")
-                    deviceStorage = st.toggle("activate-device-storage", label_visibility="hidden")
-                    qbAPI = st.toggle("activate-qb-api", label_visibility="hidden")
-                    qbBarcodeSim = st.toggle("activate-qb-barcode-simulator", label_visibility="hidden")
-                    qbDS = st.toggle("activate-qb-ds", label_visibility="hidden")
-                    qbFrontend = st.toggle("activate-qb-frontend", label_visibility="hidden")
-                    qbLogic = st.toggle("activate-qb-logic", label_visibility="hidden")
-                    qbStorage = st.toggle("activate-qb-storage", label_visibility="hidden")
-                    qbTCPBridge = st.toggle("activate-qb-tcp-bridge", label_visibility="hidden")
-                    systemPortal = st.toggle("activate-system-portal", label_visibility="hidden")
+                    arq_fipp = st.toggle("activate-arq-fipp", label_visibility="collapsed")
+                    arq_gp = st.toggle("activate-arq-qp", label_visibility="hidden")
+                    device_storage = st.toggle("activate-device-storage", label_visibility="hidden")
+                    qb_api = st.toggle("activate-qb-api", label_visibility="hidden")
+                    qb_barcode_sim = st.toggle("activate-qb-barcode-simulator", label_visibility="hidden")
+                    qb_dS = st.toggle("activate-qb-ds", label_visibility="hidden")
+                    qb_frontend = st.toggle("activate-qb-frontend", label_visibility="hidden")
+                    qb_logic = st.toggle("activate-qb-logic", label_visibility="hidden")
+                    qb_storage = st.toggle("activate-qb-storage", label_visibility="hidden")
+                    qb_tcp_bridge = st.toggle("activate-qb-tcp-bridge", label_visibility="hidden")
+                    system_portal = st.toggle("activate-system-portal", label_visibility="hidden")
                 with disable:
                     st.subheader("Enable/Disable")
-                    arqFiqqEnable = st.toggle("arq-fipp", label_visibility="collapsed")
-                    arqGp = st.toggle("arq-qp", label_visibility="hidden")
-                    deviceStorage = st.toggle("device-storage", label_visibility="hidden")
-                    qbAPI = st.toggle("qb-api", label_visibility="hidden")
-                    qbBarcodeSim = st.toggle("qb-barcode-simulator", label_visibility="hidden")
-                    qbDS = st.toggle("qb-ds", label_visibility="hidden")
-                    qbFrontend = st.toggle("qb-frontend", label_visibility="hidden")
-                    qbLogic = st.toggle("qb-logic", label_visibility="hidden")
-                    qbStorage = st.toggle("qb-storage", label_visibility="hidden")
-                    qbTCPBridge = st.toggle("qb-tcp-bridge", label_visibility="hidden")
-                    systemPortal = st.toggle("system-portal", label_visibility="hidden")
+                    arq_fiqq_enable = st.toggle("arq-fipp", label_visibility="collapsed")
+                    arq_gp_enable = st.toggle("arq-qp", label_visibility="hidden")
+                    device_storage_enable = st.toggle("device-storage", label_visibility="hidden")
+                    qb_api_enable = st.toggle("qb-api", label_visibility="hidden")
+                    qb_barcode_sim_enable = st.toggle("qb-barcode-simulator", label_visibility="hidden")
+                    qb_ds_enable = st.toggle("qb-ds", label_visibility="hidden")
+                    qb_frontend_enable = st.toggle("qb-frontend", label_visibility="hidden")
+                    qb_logic_enable = st.toggle("qb-logic", label_visibility="hidden")
+                    qb_storage_enable = st.toggle("qb-storage", label_visibility="hidden")
+                    qb_tcp_bridge_enable = st.toggle("qb-tcp-bridge", label_visibility="hidden")
+                    system_portal_enable = st.toggle("system-portal", label_visibility="hidden")
             # with right:
             #     text, active, disable = st.columns([0.2,0.3,0.3])
             #     with text:
@@ -463,9 +463,9 @@ if __name__ == "__main__":
             st.header("Robot Configurations", divider="red")
             # list = [5, 6, 7, 8, 9, 10]
             i = 0
-            if st.button("Connect to robots"):
+            if st.button("Refresh robot list"):
                 if st.session_state.testing_on_server:
-                    list = get_all_active_robots()
+                    get_all_active_robots()
                 else:
                     
                     st.session_state.ip_list.append(i+1)
