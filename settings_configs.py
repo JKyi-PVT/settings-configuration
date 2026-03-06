@@ -340,6 +340,7 @@ if __name__ == "__main__":
             try:
                 st.session_state.server = connect_to_server(st.session_state.password)
                 st.session_state.sftp = st.session_state.server.open_sftp()
+                get_robot_configs(st.session_state.server)
                 st.session_state.should_rerun = True
             except Exception as e:
                 print(str(e))
@@ -348,7 +349,6 @@ if __name__ == "__main__":
 
     if st.session_state.should_rerun == True:
         st.session_state.should_rerun = False
-        get_robot_configs(st.session_state.server)
         st.rerun()
 
     if st.session_state.server != None:
