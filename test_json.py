@@ -1,5 +1,7 @@
 import json
 from ruamel.yaml import YAML
+import os
+import subprocess
 def parse_json():
     with open("/home/justin/PVT-Repos/settings-configuration/Indy II Configs and Envs/flooplans/floorplan.json", 'r+') as file:
         data = json.load(file)
@@ -34,11 +36,32 @@ def find_paths():
         data = yaml.load(file)
         if "path" not in data["floorplan_file"]:
             print(data["floorplan_file"])
+
+# name = input("Enter a string: ")
+
+# match = "appcenter"
+
+# start = name.find(match)
+# stop = len(match)
+# print(name[start:start+stop])
+
+result = subprocess.Popen(["systemctl", "list-units", "--type=service"], stdout=subprocess.PIPE, text=True, bufsize=1)
+
+all_raw_service = result.stdout
+
+for line in result.stdout:
+    # print(line.strip().split(" ")[0])
+    service = line.strip().split(" ")[0]
+    match = "systemd"
+    start = service.find(match)
+    stop = len(match)
+    print(service[start:start+stop])
+
     
-find_paths()
+# find_paths()
 
 
-find_max_destinations()
+# find_max_destinations()
 
 
-parse_json()
+# parse_json()
