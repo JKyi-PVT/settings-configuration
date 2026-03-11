@@ -37,7 +37,7 @@ def find_paths():
         if "path" not in data["floorplan_file"]:
             print(data["floorplan_file"])
 
-# name = input("Enter a string: ")
+name = input("Enter a string: ")
 
 # match = "appcenter"
 
@@ -47,15 +47,22 @@ def find_paths():
 
 result = subprocess.Popen(["systemctl", "list-units", "--type=service"], stdout=subprocess.PIPE, text=True, bufsize=1)
 
-all_raw_service = result.stdout
+grep_process = subprocess.Popen(["grep", name], stdin=result.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=1)
 
-for line in result.stdout:
-    # print(line.strip().split(" ")[0])
-    service = line.strip().split(" ")[0]
-    match = "systemd"
-    start = service.find(match)
-    stop = len(match)
-    print(service[start:start+stop])
+result.stdout.close()
+
+output, error = grep_process.communicate()
+print(output.strip().split(" ")[0])
+
+# all_raw_service = result.stdout
+
+# for line in result.stdout:
+#     # print(line.strip().split(" ")[0])
+#     service = line.strip().split(" ")[0]
+#     match = "systemd"
+#     start = service.find(match)
+#     stop = len(match)
+#     print(service[start:start+stop])
 
     
 # find_paths()

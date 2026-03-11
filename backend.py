@@ -2,6 +2,7 @@
 # 03/05/2026 16:00 MST
 
 import paramiko
+import time
 import os
 import requests
 import json
@@ -187,7 +188,7 @@ def update_config(application: str, data: dict):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     
-@app.post("/server/configs/service")
+@app.get("/server/configs/service")
 def check_service_active():
     if server is None:
         raise HTTPException(status_code = 400, detail="Not connected to server")
@@ -210,28 +211,67 @@ def check_service_active():
             # Extract the substring using slicing
             if start != -1 and end != -1:
                 substring = service[start+1 : end]
-                all_services[service] = 1
+                all_services[substring] = 1
             else:
                 continue
-        # initial = "cx_"
-        # version = ""
-        # end_path = "-22-04@1.service"
-        # for app in config_files:
-        #     if app == "appcenter" or "device-configurator":
-        #         version = "1.2.0"
-        #     elif app == "system_portal" or "device-storage":
-        #         version = "3.0.2"
-        #     elif app == "task-queue":
-        #         version = "1.2.1"
-        #     else:
-        #         version = "7.4.0"
-        #     service_name = initial + app + version + end_path
-        #     cmd = f"systemctl is-active --quiet {service_name}"
-        #     stdin, stdout, stderr = server.exec_command(cmd)
-        #     active_list[app] = stdout.channel.recv_exit_status()
         return all_services
+    
+@app.post("/restart/{service}")
+def restart_service(service: str):
+    if server is None:
+        raise HTTPException(status_code=400, detail="Not connected to server")
+    if service not in config_files:
+        raise HTTPException(status_code=400, detail="Service not found")
+    else:
+        key = "cx_" + service
+        cmd = f"systemctl list-units --type=service | grep {key}"
+        attempts = 0
+        success = False
+        while success is False and attempts < 3:
+            try:
+                _, ssh_stdout, ssh_stderr = server.exec_command(cmd)
+                line = ssh_stdout.read().decode().strip().split(" ")[0]
+                ssh_stdin, ssh_stdout, ssh_stderr = server.exec_command("sudo -S -p '' systemctl restart " + line)
+                ssh_stdin.write(password + "\n")
+                ssh_stdin.flush()
+                success = True
+                print("Successfully Restarted Service: " + service)
+            except Exception as e:
+                print(str(e))
+                time.sleep(1)
+                attempts = attempts + 1
 
+@app.post("/restart-all")
+def restart_all_services():
+    if server is None:
+        raise HTTPException(status_code=400, detail="Not connected to server")
+    else:
+        new_cmd = "systemctl list-units --type=service --state=running | grep cx_"
+        _, ssh_stdout, ssh_stderr = server.exec_command(new_cmd)
+        all_raw_services = ssh_stdout.readlines()
+        all_services = []
 
+        for service in all_raw_services:
+            print("Found Service: " + service)
+            service = service.strip().split(" ")[0]
+            if "appcenter" not in service:
+                all_services.append(service)
+            for service in all_services:
+                result = False
+                Attempts = 0
+                while result is False and Attempts < 3:
+                    try:
+                        print("Restarting Service: " + service)
+                        ssh_stdin, ssh_stdout, ssh_stderr = server.exec_command("sudo -S -p '' systemctl restart " + service)
+                        ssh_stdin.write(password + "\n")
+                        ssh_stdin.flush()
+                        result = True
+                        print("Successfully Restarted Service: " + service)
+                    except Exception as e:
+                        print(str(e))
+                        print("Failed to Restart Service, Trying Again: " + service)
+                        time.sleep(1)
+                        Attempts = Attempts + 1 
 
     
 
