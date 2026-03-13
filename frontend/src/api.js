@@ -69,3 +69,40 @@ export async function updateSpeed(value) {
     });
     return handleResponse(res);
 }
+
+export async function checkServices() {
+    const res = await fetch(`${BASE_URL}/server/configs/service`);
+    return handleResponse(res);
+}
+
+export async function restartService(service, target = "server") {
+    const res = await fetch(`${BASE_URL}/restart/${service}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ target }),
+    });
+    return handleResponse(res);
+}
+
+export async function restartAllServices(target) {
+    const res = await fetch(`${BASE_URL}/restart-all`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ target }),
+    });
+    return handleResponse(res);
+}
+
+export async function restartAllRobots(robotNumber) {
+    const res = await fetch(`${BASE_URL}/restart-all/robots/${robotNumber}`, {
+        method: "POST",
+    });
+    return handleResponse(res);
+}
+
+export async function restartRobotService(robotNumber, service) {
+    const res = await fetch(`${BASE_URL}/restart-robot/${robotNumber}/${service}`, {
+        method: "POST",
+    });
+    return handleResponse(res);
+}

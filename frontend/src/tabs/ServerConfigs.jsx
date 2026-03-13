@@ -82,17 +82,19 @@ export default function ServerConfigs({ configs, setConfigs, simulatorConfigs, s
             {/* Infeed Timeout */}
             <div style={styles.section}>
                 <h3 style={styles.sectionTitle}>Infeed Timeout</h3>
-                <div style={styles.row}>
-                    <label style={styles.label}>Infeed timeout (sec): {timeout}</label>
+                <div style={styles.sectionSubtitle}>Time before an infeed stations times out waiting for a package</div>
+                <div style={styles.sliderRow}>
+                    <span style={styles.sliderMin}>{10}sec</span>
                     <input
                         type="range"
-                        min={30}
+                        min={10}
                         max={120}
-                        step={1}
+                        step={0.5}
                         value={timeout}
                         onChange={(e) => setTimeout(Number(e.target.value))}
                         style={styles.slider}
                     />
+                    <span style={styles.sliderValue}>{timeout} sec</span>
                 </div>
                 <button onClick={handleSaveTimeout} style={styles.button}>Set Infeed Timeout</button>
                 {timeoutStatus && (
@@ -202,11 +204,17 @@ const styles = {
         boxShadow: "0 1px 6px rgba(0,0,0,0.08)",
     },
     sectionTitle: {
-        fontSize: "16px",
+        fontSize: "15px",
         fontWeight: "600",
-        marginBottom: "16px",
+        marginBottom: 0,
         marginTop: 0,
         color: "#333",
+    },
+    sectionSubtitle: {
+        fontSize: "12px",
+        marginTop: "2px",
+        marginBottom: "10px",
+        color: "#888",
     },
     row: {
         display: "flex",
@@ -221,7 +229,26 @@ const styles = {
     },
     slider: {
         flex: 1,
-        accentColor: "#c0392b",
+        accentColor: "#3498db",
+        height: "4px",
+        cursor: "pointer",
+    },
+    sliderRow: {
+        display: "flex",
+        alignItems: "center",
+        gap: "12px",
+        marginBottom: "12px",
+    },
+    sliderMin: {
+        fontSize: "13px",
+        color: "#888",
+        minWidth: "40px",
+    },
+    sliderValue: {
+        fontSize: "13px",
+        fontWeight: "600",
+        color: "#3498db",
+        minWidth: "50px",
     },
     numberInput: {
         padding: "6px 10px",
