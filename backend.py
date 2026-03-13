@@ -23,6 +23,7 @@ app.add_middleware(
 )
 
 config_files = ["appcenter", "arq-fipp", "arq-gp", "device-configurator", "device-storage", "qb-api", "qb-barcode-scanner-simulator", "qb-ds", "qb-frontend", "qb-logic", "qb-storage", "qb-tcp-bridge", "system-portal", "task-queue"]
+robot_configs = ["robot-manager", "robot-diagnostics", "robot-diagnostics-bridge", "robot-sorting-module"]
 current_path = "/var/lib/appcenter/apps/"
 
 # Module-level state
@@ -52,6 +53,12 @@ class RobotPayloadRequest(BaseModel):
 
 class SpeedRequest(BaseModel):
     value: float
+
+class RestartRequest(BaseModel):
+    target: str
+
+class RestartAllRequest(BaseModel):
+    target: str
 
 
 @app.post("/connect")
@@ -191,13 +198,13 @@ def update_config(application: str, data: dict):
 @app.get("/server/configs/service")
 def check_service_active():
     if server is None:
-        raise HTTPException(status_code = 400, detail="Not connected to server")
+        pass
+        # raise HTTPException(status_code = 400, detail="Not connected to server")
     else:
         all_services = dict.fromkeys(config_files, 0)
         cmd = "systemctl list-units --type=service --state=running | grep cx_"
         _, ssh_stdout, ssh_stderr = server.exec_command(cmd)
         all_raw_services = ssh_stdout.readlines()
-        active_list = []
         
         for service in all_raw_services:
             service = service.strip().split(" ")[0]
@@ -217,11 +224,11 @@ def check_service_active():
         return all_services
     
 @app.post("/restart/{service}")
-def restart_service(service: str):
-    if server is None:
+def restart_service(service: str, request: RestartRequest, client=None):
+    if request.target == "server":
+        client = server
+    if client is None:
         raise HTTPException(status_code=400, detail="Not connected to server")
-    if service not in config_files:
-        raise HTTPException(status_code=400, detail="Service not found")
     else:
         key = "cx_" + service
         cmd = f"systemctl list-units --type=service | grep {key}"
@@ -229,9 +236,9 @@ def restart_service(service: str):
         success = False
         while success is False and attempts < 3:
             try:
-                _, ssh_stdout, ssh_stderr = server.exec_command(cmd)
+                _, ssh_stdout, ssh_stderr = client.exec_command(cmd)
                 line = ssh_stdout.read().decode().strip().split(" ")[0]
-                ssh_stdin, ssh_stdout, ssh_stderr = server.exec_command("sudo -S -p '' systemctl restart " + line)
+                ssh_stdin, ssh_stdout, ssh_stderr = client.exec_command("sudo -S -p '' systemctl restart " + line)
                 ssh_stdin.write(password + "\n")
                 ssh_stdin.flush()
                 success = True
@@ -240,14 +247,36 @@ def restart_service(service: str):
                 print(str(e))
                 time.sleep(1)
                 attempts = attempts + 1
+        return {"status": "done", "service": service}
 
-@app.post("/restart-all")
-def restart_all_services():
+@app.post("restart-robot/{robot_number}/{service}")
+def restart_robot_service(robot_number: int, service: str):
     if server is None:
         raise HTTPException(status_code=400, detail="Not connected to server")
     else:
+        robot_client = paramiko.SSHClient()
+        robot_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        transport = server.get_transport()
+        local_addr = ('127.0.0.1', 22)
+        robot_ip = "192.168.8." + str(robot_number + 30)
+        dest_addr = (robot_ip, 22)
+        try:
+            channel = transport.open_channel("direct-tcpip", dest_addr, local_addr)
+            robot_client.connect('localhost', port=1234, username='pvadmin', password=password, sock=channel, banner_timeout=200)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+        restart_service(service, RestartAllRequest(target="robot"), client=robot_client)
+        return {"status": "done", "robot": robot_ip, "service": service}
+
+@app.post("/restart-all")
+def restart_all_services(request: RestartAllRequest, client=None):
+    if request.target is "server":
+        client = server
+    if client is None:
+        raise HTTPException(status_code=400, detail="Not connected to target client")
+    else:
         new_cmd = "systemctl list-units --type=service --state=running | grep cx_"
-        _, ssh_stdout, ssh_stderr = server.exec_command(new_cmd)
+        _, ssh_stdout, ssh_stderr = client.exec_command(new_cmd)
         all_raw_services = ssh_stdout.readlines()
         all_services = []
 
@@ -262,7 +291,7 @@ def restart_all_services():
                 while result is False and Attempts < 3:
                     try:
                         print("Restarting Service: " + service)
-                        ssh_stdin, ssh_stdout, ssh_stderr = server.exec_command("sudo -S -p '' systemctl restart " + service)
+                        ssh_stdin, ssh_stdout, ssh_stderr = client.exec_command("sudo -S -p '' systemctl restart " + service)
                         ssh_stdin.write(password + "\n")
                         ssh_stdin.flush()
                         result = True
@@ -273,7 +302,61 @@ def restart_all_services():
                         time.sleep(1)
                         Attempts = Attempts + 1 
 
+@app.get("robots/service/{robot_number}")
+def check_robot_services(robot_number: int):
+    if server is None:
+        raise HTTPException(status_code=400, detail="Not connected to server")
+    else:
+        cmd = "systemctl list-units --type=service --state=running | grep cx_"
+        robot_client = paramiko.SSHClient()
+        robot_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        transport = server.get_transport()
+        local_addr = ('127.0.0.1', 22)
+        robot_ip = "192.168.8." + str(robot_number + 30)
+        dest_addr = (robot_ip, 22)
+        all_services = dict.fromkeys(robot_configs, 0)
+        try:
+            channel = transport.open_channel("direct-tcpip", dest_addr, local_addr)
+            robot_client.connect('localhost', port=1234, username='pvadmin', password=password, sock=channel, banner_timeout=200)
+            _, ssh_stdout, ssh_stderr = robot_client.exec_command(cmd)
+            all_raw_services = ssh_stdout.readlines()
+            for service in all_raw_services:
+                service = service.strip().split(" ")[0]
+                char1 = '['
+                char2 = ']'
+
+                # Find the indices of the start and end characters
+                start = service.find(char1)
+                end = service.find(char2)
+
+                # Extract the substring using slicing
+                if start != -1 and end != -1:
+                    substring = service[start+1 : end]
+                    all_services[substring] = 1
+                else:
+                    continue
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+        return all_services
     
+@app.post("restart-all/robots/{robot_number}")
+def restart_robot_services(robot_number: int):
+    if server is None:
+        raise HTTPException(status_code=400, detail="Not connected to server")
+    else:
+        robot_client = paramiko.SSHClient()
+        robot_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        transport = server.get_transport()
+        local_addr = ('127.0.0.1', 22)
+        robot_ip = "192.168.8." + str(robot_number + 30)
+        dest_addr = (robot_ip, 22)
+        try:
+            channel = transport.open_channel("direct-tcpip", dest_addr, local_addr)
+            robot_client.connect('localhost', port=1234, username='pvadmin', password=password, sock=channel, banner_timeout=200)            
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+        restart_all_services(RestartAllRequest(target="robot"), client=robot_client)
+        return {"status": "done", "robot": robot_ip}
 
 
 @app.post("/configs/barcode-sim")
