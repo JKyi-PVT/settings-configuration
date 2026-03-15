@@ -10,6 +10,7 @@ import subprocess
 from ruamel.yaml import YAML
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 app = FastAPI()
@@ -65,107 +66,93 @@ class RestartAllRequest(BaseModel):
 def connect(request: ConnectRequest):
     global server, sftp, password
     print('Connected to Server')
-    return {'status': 'connected'}
-    # try:
-    #     print('Attempting connection: 192.168.9.2')
-    #     client = paramiko.SSHClient()
-    #     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    #     client.connect('192.168.9.2', username='pvadmin', password=request.password)
-    #     server = client
-    #     sftp = server.open_sftp()
-    #     password = request.password
-    #     print('Connected to Server.')
-    #     return {"status": "connected"}
-    # except Exception as e:
-    #     raise HTTPException(status_code=500, detail=str(e))
+    try:
+        print('Attempting connection: 192.168.9.2')
+        client = paramiko.SSHClient()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        client.connect('192.168.9.2', username='pvadmin', password=request.password)
+        server = client
+        sftp = server.open_sftp()
+        password = request.password
+        print('Connected to Server.')
+        return {"status": "connected"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/configs")
 def get_configs():
     global configs, simulator_configs, floorplan_data, floorplan_path, sortplan_path, barcode_sim_instances, max_destinations, max_velocity
 
-    # if server is None:
-    #     raise HTTPException(status_code=400, detail="Not connected to server")
+    if server is None:
+        raise HTTPException(status_code=400, detail="Not connected to server")
 
-    # # Load all application configs
-    # loaded_configs = {}
-    # for file in config_files:
-    #     yaml = YAML()
-    #     yaml.preserve_quotes = True
-    #     path = current_path + file + "/config.yaml"
-    #     try:
-    #         with sftp.open(path, "r") as yaml_file:
-    #             data = yaml.load(yaml_file)
-    #         loaded_configs[file] = data
-    #     except Exception as e:
-    #         print(f"Could not load config for {file}: {str(e)}")
+    # Load all application configs
+    loaded_configs = {}
+    for file in config_files:
+        yaml = YAML()
+        yaml.preserve_quotes = True
+        path = current_path + file + "/config.yaml"
+        try:
+            with sftp.open(path, "r") as yaml_file:
+                data = yaml.load(yaml_file)
+            loaded_configs[file] = data
+        except Exception as e:
+            print(f"Could not load config for {file}: {str(e)}")
 
-    # if loaded_configs:
-    #     configs = loaded_configs
-    # else:
-    #     raise HTTPException(status_code=500, detail="No config data found")
+    if loaded_configs:
+        configs = loaded_configs
+    else:
+        raise HTTPException(status_code=500, detail="No config data found")
 
-    # # Count barcode simulator instances
-    # paths = current_path + "qb-barcode-scanner-simulator/7.1.0-22-04/instances"
-    # command = f"find {paths} -maxdepth 1 -type d | wc -l"
-    # stdin, stdout, stderr = server.exec_command(command)
-    # count_str = stdout.read().decode('utf-8').strip()
-    # barcode_sim_instances = int(count_str) - 1
+    # Count barcode simulator instances
+    paths = current_path + "qb-barcode-scanner-simulator/7.1.0-22-04/instances"
+    command = f"find {paths} -maxdepth 1 -type d | wc -l"
+    stdin, stdout, stderr = server.exec_command(command)
+    count_str = stdout.read().decode('utf-8').strip()
+    barcode_sim_instances = int(count_str) - 1
 
-    # # Load barcode simulator instance configs
-    # sim_files = {}
-    # for i in range(barcode_sim_instances):
-    #     yaml = YAML()
-    #     yaml.preserve_quotes = True
-    #     simulator_path = current_path + "qb-barcode-scanner-simulator/7.1.0-22-04/instances/" + f"{i+1}" + "/config_" + f"{i+1}" + ".yaml"
-    #     with sftp.open(simulator_path, "r") as file:
-    #         data = yaml.load(file)
-    #     sim_files[i] = data
-    # simulator_configs = sim_files
+    # Load barcode simulator instance configs
+    sim_files = {}
+    for i in range(barcode_sim_instances):
+        yaml = YAML()
+        yaml.preserve_quotes = True
+        simulator_path = current_path + "qb-barcode-scanner-simulator/7.1.0-22-04/instances/" + f"{i+1}" + "/config_" + f"{i+1}" + ".yaml"
+        with sftp.open(simulator_path, "r") as file:
+            data = yaml.load(file)
+        sim_files[i] = data
+    simulator_configs = sim_files
 
-    # # Load scenario values
-    # qb_storage = configs["qb-storage"]
-    # if "path" not in qb_storage["floorplan_file"]:
-    #     floorplan_path = qb_storage["floorplan_file"]
-    # else:
-    #     floorplan_path = qb_storage["floorplan_file"]["path"]
-    # if "path" not in qb_storage["sortplan_file"]:
-    #     sortplan_path = qb_storage["sortplan_file"]
-    # else:
-    #     sortplan_path = qb_storage["sortplan_file"]["path"]
+    # Load scenario values
+    qb_storage = configs["qb-storage"]
+    if "path" not in qb_storage["floorplan_file"]:
+        floorplan_path = qb_storage["floorplan_file"]
+    else:
+        floorplan_path = qb_storage["floorplan_file"]["path"]
+    if "path" not in qb_storage["sortplan_file"]:
+        sortplan_path = qb_storage["sortplan_file"]
+    else:
+        sortplan_path = qb_storage["sortplan_file"]["path"]
 
-    # with open(floorplan_path, 'r') as floorplan_file:
-    #     floorplan_data = json.load(floorplan_file)
-    #     first_value = next(iter(floorplan_data["zones"]))
-    #     max_velocity = float(first_value["constraints"]["max_velocity"])
+    with open(floorplan_path, 'r') as floorplan_file:
+        floorplan_data = json.load(floorplan_file)
+        first_value = next(iter(floorplan_data["zones"]))
+        max_velocity = float(first_value["constraints"]["max_velocity"])
 
-    # max_destinations = 0
-    # with open(sortplan_path, 'r') as sortplan_file:
-    #     data = json.load(sortplan_file)
-    #     for node in data:
-    #         value = data[node].get("sub_directions")
-    #         if value is None:
-    #             continue
-    #         else:
-    #             bin_number = list(data[node]["sub_directions"].keys())[0]
-    #             if bin_number == 'reject':
-    #                 bin_number = 0
-    #             if int(bin_number) > max_destinations:
-    #                 max_destinations = int(bin_number)
+    max_destinations = 0
+    with open(sortplan_path, 'r') as sortplan_file:
+        data = json.load(sortplan_file)
+        for node in data:
+            value = data[node].get("sub_directions")
+            if value is None:
+                continue
+            else:
+                bin_number = list(data[node]["sub_directions"].keys())[0]
+                if bin_number == 'reject':
+                    bin_number = 0
+                if int(bin_number) > max_destinations:
+                    max_destinations = int(bin_number)
 
-    # return {
-    #     "configs": configs,
-    #     "simulator_configs": simulator_configs,
-    #     "barcode_sim_instances": barcode_sim_instances,
-    #     "max_velocity": max_velocity,
-    #     "max_destinations": max_destinations
-    # }
-
-    configs = {}
-    simulator_configs = {}
-    barcode_sim_instances = {}
-    max_velocity = 1.2
-    max_destinations = 244
     return {
         "configs": configs,
         "simulator_configs": simulator_configs,
@@ -173,6 +160,7 @@ def get_configs():
         "max_velocity": max_velocity,
         "max_destinations": max_destinations
     }
+
 
 
 @app.post("/configs/{application}")
@@ -198,8 +186,7 @@ def update_config(application: str, data: dict):
 @app.get("/server/configs/service")
 def check_service_active():
     if server is None:
-        pass
-        # raise HTTPException(status_code = 400, detail="Not connected to server")
+        raise HTTPException(status_code = 400, detail="Not connected to server")
     else:
         all_services = dict.fromkeys(config_files, 0)
         cmd = "systemctl list-units --type=service --state=running | grep cx_"
@@ -249,24 +236,7 @@ def restart_service(service: str, request: RestartRequest, client=None):
                 attempts = attempts + 1
         return {"status": "done", "service": service}
 
-@app.post("restart-robot/{robot_number}/{service}")
-def restart_robot_service(robot_number: int, service: str):
-    if server is None:
-        raise HTTPException(status_code=400, detail="Not connected to server")
-    else:
-        robot_client = paramiko.SSHClient()
-        robot_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        transport = server.get_transport()
-        local_addr = ('127.0.0.1', 22)
-        robot_ip = "192.168.8." + str(robot_number + 30)
-        dest_addr = (robot_ip, 22)
-        try:
-            channel = transport.open_channel("direct-tcpip", dest_addr, local_addr)
-            robot_client.connect('localhost', port=1234, username='pvadmin', password=password, sock=channel, banner_timeout=200)
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
-        restart_service(service, RestartAllRequest(target="robot"), client=robot_client)
-        return {"status": "done", "robot": robot_ip, "service": service}
+
 
 @app.post("/restart-all")
 def restart_all_services(request: RestartAllRequest, client=None):
@@ -339,6 +309,26 @@ def check_robot_services(robot_number: int):
             raise HTTPException(status_code=500, detail=str(e))
         return all_services
     
+@app.post("restart-robot/{robot_number}/{service}")
+def restart_robot_service(robot_number: int, service: str):
+    if server is None:
+        raise HTTPException(status_code=400, detail="Not connected to server")
+    else:
+        robot_client = paramiko.SSHClient()
+        robot_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        transport = server.get_transport()
+        local_addr = ('127.0.0.1', 22)
+        robot_ip = "192.168.8." + str(robot_number + 30)
+        dest_addr = (robot_ip, 22)
+        try:
+            channel = transport.open_channel("direct-tcpip", dest_addr, local_addr)
+            robot_client.connect('localhost', port=1234, username='pvadmin', password=password, sock=channel, banner_timeout=200)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+        restart_service(service, RestartAllRequest(target="robot"), client=robot_client)
+        return {"status": "done", "robot": robot_ip, "service": service}
+    
+
 @app.post("restart-all/robots/{robot_number}")
 def restart_robot_services(robot_number: int):
     if server is None:
@@ -480,6 +470,7 @@ def update_speed(request: SpeedRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+app.mount("/", StaticFiles(directory="frontend/dist", html=True), name="static")
 
 if __name__ == "__main__":
     import uvicorn
