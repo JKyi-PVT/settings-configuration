@@ -42,6 +42,7 @@ max_velocity = 0
 ip_list = None
 robot_sftp_list = None
 sorting_module_configs = {}
+frs_version = '7.1.0'
 
 
 # Request models
@@ -106,7 +107,8 @@ def get_configs():
         raise HTTPException(status_code=500, detail="No config data found")
 
     # Count barcode simulator instances
-    paths = current_path + "qb-barcode-scanner-simulator/7.1.0-22-04/instances"
+    set_frs_version()
+    paths = current_path + "qb-barcode-scanner-simulator/" + frs_version + "-22-04/instances"
     command = f"find {paths} -maxdepth 1 -type d | wc -l"
     stdin, stdout, stderr = server.exec_command(command)
     count_str = stdout.read().decode('utf-8').strip()
@@ -117,7 +119,7 @@ def get_configs():
     for i in range(barcode_sim_instances):
         yaml = YAML()
         yaml.preserve_quotes = True
-        simulator_path = current_path + "qb-barcode-scanner-simulator/7.1.0-22-04/instances/" + f"{i+1}" + "/config_" + f"{i+1}" + ".yaml"
+        simulator_path = paths + "/" + f"{i+1}" + "/config_" + f"{i+1}" + ".yaml"
         with sftp.open(simulator_path, "r") as file:
             data = yaml.load(file)
         sim_files[i] = data
@@ -134,13 +136,13 @@ def get_configs():
     else:
         sortplan_path = qb_storage["sortplan_file"]["path"]
 
-    with open(floorplan_path, 'r') as floorplan_file:
+    with sftp.open(floorplan_path, 'r') as floorplan_file:
         floorplan_data = json.load(floorplan_file)
         first_value = next(iter(floorplan_data["zones"]))
         max_velocity = float(first_value["constraints"]["max_velocity"])
 
     max_destinations = 0
-    with open(sortplan_path, 'r') as sortplan_file:
+    with sftp.open(sortplan_path, 'r') as sortplan_file:
         data = json.load(sortplan_file)
         for node in data:
             value = data[node].get("sub_directions")
@@ -183,6 +185,19 @@ def update_config(application: str, data: dict):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     
+def get_substring(string):
+    substring = string.split('_')[1]
+    return substring
+
+def set_frs_version():
+    global frs_version
+    cmd = "systemctl list-units --type=service --state=running | grep cx_qb-ds"
+    _, ssh_stdout, ssh_stderr = server.exec_command(cmd)
+    raw_readout = ssh_stdout.readlines()
+
+    service = raw_readout[0].split(" ")[2]
+    frs_version = service.split('_')[2][:5]
+    
 @app.get("/server/configs/service")
 def check_service_active():
     if server is None:
@@ -194,20 +209,11 @@ def check_service_active():
         all_raw_services = ssh_stdout.readlines()
         
         for service in all_raw_services:
+            
             service = service.strip().split(" ")[0]
-            char1 = '['
-            char2 = ']'
+            substring = get_substring(service)
+            all_services[substring] = 1
 
-            # Find the indices of the start and end characters
-            start = service.find(char1)
-            end = service.find(char2)
-
-            # Extract the substring using slicing
-            if start != -1 and end != -1:
-                substring = service[start+1 : end]
-                all_services[substring] = 1
-            else:
-                continue
         return all_services
     
 @app.post("/restart/{service}")
@@ -291,20 +297,11 @@ def check_robot_services(robot_number: int):
             _, ssh_stdout, ssh_stderr = robot_client.exec_command(cmd)
             all_raw_services = ssh_stdout.readlines()
             for service in all_raw_services:
+
                 service = service.strip().split(" ")[0]
-                char1 = '['
-                char2 = ']'
+                substring = get_substring(service)
+                all_services[substring] = 1
 
-                # Find the indices of the start and end characters
-                start = service.find(char1)
-                end = service.find(char2)
-
-                # Extract the substring using slicing
-                if start != -1 and end != -1:
-                    substring = service[start+1 : end]
-                    all_services[substring] = 1
-                else:
-                    continue
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
         return all_services
@@ -470,7 +467,7 @@ def update_speed(request: SpeedRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-app.mount("/", StaticFiles(directory="frontend/dist", html=True), name="static")
+# app.mount("/", StaticFiles(directory="frontend/dist", html=True), name="static")
 
 if __name__ == "__main__":
     import uvicorn

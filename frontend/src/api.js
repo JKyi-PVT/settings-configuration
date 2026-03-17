@@ -1,4 +1,4 @@
-const BASE_URL = "";
+const BASE_URL = "http://localhost:8000";
 
 async function handleResponse(res) {
     const data = await res.json();
