@@ -8,6 +8,7 @@ import requests
 import json
 import subprocess
 from ruamel.yaml import YAML
+from typing import Any
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -32,6 +33,7 @@ server = None
 sftp = None
 password = None
 configs = None
+server_apps = None
 simulator_configs = None
 floorplan_data = None
 floorplan_path = None
@@ -53,6 +55,14 @@ class RobotPayloadRequest(BaseModel):
     turn_on: bool
     robot_list: list[int]
 
+class ServerConfigChangeRequest(BaseModel):
+    setting_name: str
+    value: Any
+
+class UpdateBarcodeSimRequest(BaseModel):
+    range_start: Any
+    range_end: Any
+
 class SpeedRequest(BaseModel):
     value: float
 
@@ -61,6 +71,54 @@ class RestartRequest(BaseModel):
 
 class RestartAllRequest(BaseModel):
     target: str
+
+
+
+def get_server_apps():
+    global server_apps
+
+    names = []
+    if server is None:
+        raise HTTPException(status_code = 400, detail="Not connected to server")
+    else:
+        cmd = "systemctl list-units --type=service --state=running | grep cx_"
+        _, ssh_stdout, ssh_stderr = server.exec_command(cmd)
+        all_raw_services = ssh_stdout.readlines()
+        
+        for service in all_raw_services:
+            
+            service = service.strip().split(" ")[0]
+            substring = get_substring(service)
+            names.append(substring)
+        cmd = "systemctl list-unit-files --type=service --state=disabled  | grep cx"
+        _, ssh_stdout, ssh_stderr = server.exec_command(cmd)
+        all_disabled_services = ssh_stdout.readlines()
+
+        for service in all_disabled_services:
+            service = service.strip().split(" ")[0]
+            substring = get_substring(service)
+            if substring in names:
+                continue
+            else:
+                names.append(substring)
+        
+        server_apps = names
+
+def is_server_connected():
+    if server is None:
+        raise HTTPException(status_code=400, detail="Not connected to server")
+
+@app.get("/emergency/create_backup")
+def create_backup():
+    is_server_connected()
+    cmd = "cp -r /var/lib/appcenter /var/lib/backup_appcenter"
+    server.exec_command(cmd)
+
+@app.get("/emergency/load_backup")
+def load_backup():
+    is_server_connected()
+    server.exec("rsync -avn --delete /var/lib/backup_appcenter/ /var/lib/appcenter/")
+    create_backup()
 
 
 @app.post("/connect")
@@ -85,12 +143,16 @@ def connect(request: ConnectRequest):
 def get_configs():
     global configs, simulator_configs, floorplan_data, floorplan_path, sortplan_path, barcode_sim_instances, max_destinations, max_velocity
 
+    get_server_apps()
+
+    print(server_apps)
+
     if server is None:
         raise HTTPException(status_code=400, detail="Not connected to server")
 
     # Load all application configs
     loaded_configs = {}
-    for file in config_files:
+    for file in server_apps:
         yaml = YAML()
         yaml.preserve_quotes = True
         path = current_path + file + "/config.yaml"
@@ -141,7 +203,6 @@ def get_configs():
         first_value = next(iter(floorplan_data["zones"]))
         max_velocity = float(first_value["constraints"]["max_velocity"])
 
-    max_destinations = 0
     with sftp.open(sortplan_path, 'r') as sortplan_file:
         data = json.load(sortplan_file)
         for node in data:
@@ -160,13 +221,14 @@ def get_configs():
         "simulator_configs": simulator_configs,
         "barcode_sim_instances": barcode_sim_instances,
         "max_velocity": max_velocity,
-        "max_destinations": max_destinations
+        "max_destinations": max_destinations,
+        "server_apps": server_apps
     }
 
 
 
 @app.post("/configs/{application}")
-def update_config(application: str, data: dict):
+def update_config(application: str, request: ServerConfigChangeRequest):
     if server is None:
         raise HTTPException(status_code=400, detail="Not connected to server")
     if configs is None:
@@ -176,7 +238,8 @@ def update_config(application: str, data: dict):
 
     yaml = YAML()
     yaml.preserve_quotes = True
-    configs[application] = data
+    print(configs[application][request.setting_name])
+    configs[application][request.setting_name] = request.value
     path = current_path + application + "/config.yaml"
     try:
         with sftp.open(path, "w") as file:
@@ -203,7 +266,7 @@ def check_service_active():
     if server is None:
         raise HTTPException(status_code = 400, detail="Not connected to server")
     else:
-        all_services = dict.fromkeys(config_files, 0)
+        all_services = dict.fromkeys(server_apps, 0)
         cmd = "systemctl list-units --type=service --state=running | grep cx_"
         _, ssh_stdout, ssh_stderr = server.exec_command(cmd)
         all_raw_services = ssh_stdout.readlines()
@@ -246,7 +309,7 @@ def restart_service(service: str, request: RestartRequest, client=None):
 
 @app.post("/restart-all")
 def restart_all_services(request: RestartAllRequest, client=None):
-    if request.target is "server":
+    if request.target == "server":
         client = server
     if client is None:
         raise HTTPException(status_code=400, detail="Not connected to target client")
@@ -261,22 +324,25 @@ def restart_all_services(request: RestartAllRequest, client=None):
             service = service.strip().split(" ")[0]
             if "appcenter" not in service:
                 all_services.append(service)
-            for service in all_services:
-                result = False
-                Attempts = 0
-                while result is False and Attempts < 3:
-                    try:
-                        print("Restarting Service: " + service)
-                        ssh_stdin, ssh_stdout, ssh_stderr = client.exec_command("sudo -S -p '' systemctl restart " + service)
-                        ssh_stdin.write(password + "\n")
-                        ssh_stdin.flush()
-                        result = True
-                        print("Successfully Restarted Service: " + service)
-                    except Exception as e:
-                        print(str(e))
-                        print("Failed to Restart Service, Trying Again: " + service)
-                        time.sleep(1)
-                        Attempts = Attempts + 1 
+        for service in all_services:
+            result = False
+            Attempts = 0
+            while result is False and Attempts < 3:
+                try:
+                    print(service)
+                    print("Restarting Service: " + service)
+                    ssh_stdin, ssh_stdout, ssh_stderr = client.exec_command("sudo -S -p '' systemctl restart " + service)
+                    # error = ssh_stderr.readlines()
+                    # print(error)
+                    ssh_stdin.write(password + "\n")
+                    ssh_stdin.flush()
+                    result = True
+                    print("Successfully Restarted Service: " + service)
+                except Exception as e:
+                    print(str(e))
+                    print("Failed to Restart Service, Trying Again: " + service)
+                    time.sleep(1)
+                    Attempts = Attempts + 1 
 
 @app.get("robots/service/{robot_number}")
 def check_robot_services(robot_number: int):
@@ -346,8 +412,8 @@ def restart_robot_services(robot_number: int):
         return {"status": "done", "robot": robot_ip}
 
 
-@app.post("/configs/barcode-sim")
-def update_barcode_sim(data: dict):
+@app.post("/configs/qb-barcode-scanner-simulator/{instance}")
+def update_barcode_sim(instance: int, request: UpdateBarcodeSimRequest):
     if server is None:
         raise HTTPException(status_code=400, detail="Not connected to server")
     if simulator_configs is None:
@@ -356,10 +422,14 @@ def update_barcode_sim(data: dict):
     yaml = YAML()
     yaml.preserve_quotes = True
     try:
-        for i in range(barcode_sim_instances):
-            path = current_path + "qb-barcode-scanner-simulator/7.1.0-22-04/instances/" + f"{i+1}" + "/config_" + f"{i+1}" + ".yaml"
-            with sftp.open(path, 'w') as file:
-                yaml.dump(simulator_configs[i], file)
+        path = current_path + "qb-barcode-scanner-simulator/" + frs_version + "-22-04/instances/" + str(instance) + "/config_" + str(instance) + ".yaml"
+        instance = instance - 1
+        start = simulator_configs[instance]
+        print(start)
+        simulator_configs[instance]["range_start"] = request.range_start
+        simulator_configs[instance]["range_end"] = request.range_end
+        with sftp.open(path, 'w') as file:
+            yaml.dump(simulator_configs[instance], file)
         return {"status": "saved"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -458,7 +528,7 @@ def update_speed(request: SpeedRequest):
     if floorplan_path is None:
         raise HTTPException(status_code=400, detail="Floorplan not loaded")
     try:
-        with open(floorplan_path, 'w') as file:
+        with sftp.open(floorplan_path, 'w') as file:
             data = floorplan_data
             for zone in data["zones"]:
                 zone["constraints"]["max_velocity"] = request.value
@@ -471,4 +541,4 @@ def update_speed(request: SpeedRequest):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8001)

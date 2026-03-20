@@ -1,4 +1,4 @@
-const BASE_URL = "http://localhost:8000";
+const BASE_URL = "http://localhost:8001";
 
 async function handleResponse(res) {
     const data = await res.json();
@@ -22,20 +22,20 @@ export async function getConfigs() {
     return handleResponse(res);
 }
 
-export async function updateConfig(application, data) {
+export async function updateConfig(application, config, data) {
     const res = await fetch(`${BASE_URL}/configs/${application}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
+        body: JSON.stringify({ setting_name: config, value: data }),
     });
     return handleResponse(res);
 }
 
-export async function updateBarcodeSim(data) {
-    const res = await fetch(`${BASE_URL}/configs/barcode-sim`, {
+export async function updateBarcodeSim(instance, rangeStart, rangeEnd) {
+    const res = await fetch(`${BASE_URL}/configs/qb-barcode-scanner-simulator/${instance}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
+        body: JSON.stringify({ range_start: rangeStart, range_end: rangeEnd }),
     });
     return handleResponse(res);
 }

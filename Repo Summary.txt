@@ -1,143 +1,124 @@
-## Project Overview
+What the Repo Does
+This is the Prime Vision Technology Settings/Configuration UI — a tool for engineers to remotely view and control a robotic parcel sorting system. The architecture has been overhauled from a Streamlit monolith into a proper React + FastAPI web app, with a Docker container to package it. The system connects via SSH/SFTP to a server at 192.168.9.2, reads and writes YAML config files for 14 server applications, monitors and restarts systemd services, manages robot connections via SSH-over-SSH tunneling, and exposes robot/server controls through a browser UI.
 
-This is a **Streamlit-based GUI tool** called the **Prime Vision Technology Settings/Configuration UI**. It allows engineers to remotely (or locally) view and modify YAML configuration files for a robotic sorting system — likely an automated parcel/package sorting conveyor system. It connects to a server via SSH/SFTP or runs locally against a file directory.
+File-by-File Breakdown
 
----
+backend.py — FastAPI Backend Server
+This is the new backend. It replaced the old Streamlit app's logic as a proper REST API server. All SSH/SFTP operations, config I/O, and robot communications happen here.
+Module-level state (global variables)
+The server holds its entire session state as Python module-level globals: server (SSH client), sftp (SFTP session), password, configs (dict of all 14 app configs), simulator_configs, floorplan_data/floorplan_path/sortplan_path, barcode_sim_instances, max_destinations, max_velocity, ip_list, robot_sftp_list, sorting_module_configs, and frs_version. This is stateful single-session design — one user connected at a time.
+config_files — hardcoded list of 14 application names whose config.yaml files are managed.
+robot_configs — list of the 4 robot-side service names: robot-manager, robot-diagnostics, robot-diagnostics-bridge, robot-sorting-module.
+current_path — base path on the server: /var/lib/appcenter/apps/.
+Request models (Pydantic)
+ConnectRequest — wraps password. RobotPayloadRequest — wraps turn_on bool and robot_list. SpeedRequest — wraps a float value. RestartRequest and RestartAllRequest — wrap a target string ("server" or "robot").
+POST /connect
+Accepts a password, opens an SSH connection to 192.168.9.2 as pvadmin, stores the SSH client and SFTP handle globally. Returns {"status": "connected"} or a 500 with the exception.
+GET /configs
+The main data loading endpoint. Iterates config_files and reads each app's config.yaml from SFTP into configs. Then calls set_frs_version() to detect the running FRS version from a live systemctl grep. Counts barcode simulator instances using find ... | wc -l. Reads each simulator instance config. Then reads qb-storage's config to extract the floorplan_file and sortplan_file paths — handles both a bare string format and a dict with a "path" key. Opens the floorplan JSON to extract max_velocity from the first zone's constraints. Opens the sortplan JSON and walks all nodes to find the highest bin_number destination index (max_destinations). Returns all of this in a single JSON payload.
+POST /configs/{application}
+Accepts an application name and a full config dict. Validates that the server is connected and the app exists in configs. Writes the new config back to the server via SFTP using ruamel.yaml to preserve formatting and comments.
+POST /configs/barcode-sim
+Accepts updated simulator config data and writes each instance's YAML back to its instance path on the server.
+GET /server/configs/service
+Runs systemctl list-units --type=service --state=running | grep cx_ on the server. Parses the output to build a dict of all 14 config app names, each mapped to 1 if running or 0 if not. The service name format is cx_{app-name} — the substring after the underscore is matched to the known app list.
+POST /restart/{service}
+Restarts a specific service by name. Looks up the full systemd unit name (e.g. cx_qb-ds@...), then runs sudo -S -p '' systemctl restart {unit} over SSH, writing the password to stdin. Retries up to 3 times with a 1-second delay on failure. Works on both server and robot clients depending on the client parameter.
+POST /restart-all
+Lists all running cx_ services, skips appcenter, and restarts the rest one by one. Uses the same sudo-over-SSH pattern with 3-retry logic.
+GET /robots
+Calls the robot manager HTTP API at http://192.168.9.2:6019/enabled_robots, filters for connected: true entries, and converts the robot IDs (formatted as "RXX") to integer offsets by stripping the R prefix. Returns {"robots": [...]}.
+POST /robots/connect
+Fetches the active robot list, then for each robot, opens an SSH-over-SSH tunnel through the main server (using Paramiko's direct-tcpip channel). Robot IPs are 192.168.8.{number + 30}. Opens SFTP to each robot and reads robot-sorting-module/config.yaml into sorting_module_configs. Returns which robots succeeded and which failed.
+POST /robots/payload-detection
+For each robot in robot_list, looks up its sorting module config from the in-memory dict, sets payload_detection to the requested bool, and writes the YAML back via that robot's SFTP connection.
+POST /speed
+Reads floorplan_data (already in memory from /configs), sets max_velocity on every zone's constraints, and writes the full JSON back to floorplan_path with json.dump. Note: this writes to a local path (open(floorplan_path, 'w')), not SFTP — this may be a bug if floorplan_path is a remote path.
+GET robots/service/{robot_number} and POST restart-robot/{robot_number}/{service} and POST restart-all/robots/{robot_number}
+These endpoints use the same SSH-over-SSH tunneling pattern to connect to a specific robot and either check its running services, restart a single service, or restart all services.
+get_substring(string)
+Utility — splits a systemd service name on _ and returns the second part (the app name).
+set_frs_version()
+Runs a systemctl grep for cx_qb-ds and parses the version number (e.g. 7.1.0) out of the unit name. Sets the global frs_version used to build barcode simulator instance paths.
+__main__ block
+Starts the FastAPI server using uvicorn on 0.0.0.0:8000. The app.mount(...) line for serving the React static build is commented out — this means the frontend and backend are currently run separately.
 
-## File-by-File Breakdown
+frontend/src/App.jsx — Root React Component
+The top-level application component. Owns all shared state: connected, password, activeTab, loading, error, configs, simulatorConfigs, barcodeSimInstances, maxVelocity, maxDestinations.
+Login screen — rendered if connected is false. Shows a password input and a "Connect to Server" button. On submit, calls connectToServer(password) then immediately calls getConfigs() to load all data in sequence. On success, all state is populated and connected is set to true. On failure, displays the error message inline.
+Main layout — once connected, renders the app title, a tab bar with three named tabs, and conditionally renders the active tab's component. Props are drilled into ServerConfigs and RobotConfigs. ServerApps receives no props. All inline styles are defined in a styles const at the bottom of the file — red (#c0392b) as the primary brand color.
 
----
+frontend/src/api.js — HTTP Client Layer
+All communication from the frontend to the backend is centralized here. Base URL is hardcoded to http://localhost:8000. Every function is an async fetch wrapper. handleResponse checks res.ok and throws with data.detail on error (matching FastAPI's error format).
+Functions exported: connectToServer, getConfigs, updateConfig, updateBarcodeSim, getActiveRobots, connectRobots, setPayloadDetection, updateSpeed, checkServices, restartService, restartAllServices, restartAllRobots, restartRobotService.
 
-### `settings_configs.py` — Main Application
+frontend/src/tabs/ServerApps.jsx — Tab 1 Component
+Handles the "Server and Robot Applications" tab. Manages local state for: serviceStatus (dict of service name → 0/1), status messages, per-service restart loading state, connected robot list, selected robot, and robot-connect loading state.
+On mount (useEffect), automatically calls fetchServiceStatus() which hits GET /server/configs/service to populate the service status dict.
+ServiceRow — inner component rendered for each server app. Shows a green or grey dot based on the service's active status, the service name, and a ↻ restart button that calls handleRestartService.
+RobotServiceRow — inner component for each robot app. Same dot + name + button layout, but the restart button is disabled if no robot is selected in the dropdown.
+handleRestartAllServer — calls restartAllServices("server"), then refreshes the service status.
+handleConnectRobots — calls connectRobots(), populates connectedRobots with the connected IPs returned.
+handleRestartAllRobots — calls restartAllRobots(selectedRobot) for the currently selected robot number.
+handleRestartRobotService — calls restartRobotService(selectedRobot, service) for a specific service on the selected robot.
+The rendered UI has two card sections — SERVER APPS and ROBOT APPS. The robot card includes a "Connect to Robots" button plus a dropdown to select which robot's services to manage.
 
-This is the entire application. It handles connection, data loading, UI rendering, and config writing.
+frontend/src/tabs/ServerConfigs.jsx — Tab 2 Component
+Handles the "Server Configs" tab. Receives configs, setConfigs, simulatorConfigs, setSimulatorConfigs, barcodeSimInstances, and maxDestinations as props.
+Local state: timeout (initialized from qb-ds.input_cell_deactivation_timeout), costLinear and costQuad (from arq-gp), simRanges (array built from simulator instance configs on mount via useEffect), and three status message states.
+maxDestinations is received as a prop but not currently used in any rendered UI — it's passed down but has no widget wired to it.
+handleSaveTimeout — merges the new timeout value into a copy of configs["qb-ds"], calls updateConfig("qb-ds", updated), and updates parent state.
+handleSaveLoadBalance — same pattern for arq-gp, writing both target_reservation_cost_linear and target_reservation_cost_quad.
+handleSaveSimRanges — iterates all barcode simulator instances, merges range_start/range_end into each instance's config object, calls updateBarcodeSim(updated), and updates parent state.
+Rendered UI: three card sections. Infeed timeout has a slider (30–120) plus a save button. Load balancing has two number inputs (0–20, step 0.1) plus a save button. Barcode simulator ranges dynamically generates one row per instance with start/end number inputs.
 
-**Imports & Global State**
-- `paramiko` — SSH/SFTP client for connecting to the remote server
-- `streamlit` — web UI framework
-- `requests` — HTTP calls to a local robot management API
-- `ruamel.yaml` — YAML read/write that preserves comments and formatting (unlike PyYAML which strips them)
-- `config_files` — a hardcoded list of 14 application names whose `config.yaml` files will be loaded
+frontend/src/tabs/RobotConfigs.jsx — Tab 3 Component
+Handles the "Robot Configs" tab. Receives maxVelocity as a prop (used to initialize the speed slider state).
+Local state: connectedRobots (IPs), failedRobots, selectedRobots (array of integer IDs), selectAll bool, speed float, and status states for connect/payload/speed operations.
+handleConnectRobots — calls connectRobots(), populates connectedRobots and failedRobots, resets selection.
+handleSelectAll / handleSelectRobot — checkbox logic. Select all maps all connected IPs to their integer robot IDs via extractRobotId (takes ip.split(".")[3] - 30).
+handlePayloadDetection(turnOn) — calls setPayloadDetection(turnOn, selectedRobots) with the currently selected robot ID list.
+handleSaveSpeed — calls updateSpeed(speed) with the current slider value.
+Rendered UI: four sections — Connect to Robots button, robot checkboxes, payload detection on/off buttons (disabled if nothing selected), and a speed slider initialized to maxVelocity with a save button.
 
----
+frontend/src/main.jsx — React Entry Point
+Minimal boilerplate. Imports StrictMode and createRoot, imports index.css and App.jsx, and mounts <App /> into the #root div from index.html.
 
-**`ensure_streamlit_config()`**
-Copies a bundled `.streamlit/config.toml` into the user's home directory. This is relevant when the app is packaged as a standalone executable (PyInstaller `_MEIPASS` path), ensuring Streamlit finds its config even outside a dev environment.
+frontend/src/index.css — Global CSS
+Vite-generated default global stylesheet. Sets system font stack, line-height, light/dark color scheme support, base body layout (display: flex, place-items: center), and default button/link styles. The dark background (#242424) set here is overridden at the component level by the inline styles in App.jsx and the tab components, which use white cards on a light grey background.
 
----
+frontend/src/App.css — Vite Default CSS (Unused)
+The default Vite template CSS for the #root element, logo animation keyframe, and .card / .read-the-docs classes. None of these classes are referenced anywhere in the actual application components — this file is a leftover from the Vite scaffolding and has no effect.
 
-**`adjust_server_configs(application)`**
-Writes a modified config back to disk (or remote via SFTP) for a given application name. It pulls the in-memory data from `st.session_state.configs[application]` and serializes it back to the correct `config.yaml` path using `ruamel.yaml` to preserve formatting.
+frontend/index.html — HTML Entry Point
+Standard single-page app shell. Sets charset, viewport, and a Vite SVG favicon. Contains only a <div id="root"> and a <script type="module" src="/src/main.jsx"> tag. The page title is still the default "frontend" — not yet updated to the product name.
 
----
+frontend/vite.config.js — Vite Configuration
+Minimal config. Imports defineConfig and the @vitejs/plugin-react plugin (uses Babel for JSX/Fast Refresh). No custom aliases, proxy rules, or build output path overrides.
 
-**`adjust_barcode_sim()`**
-Same concept as above but specifically for the barcode scanner simulator. It iterates over all simulator instances and writes each one's config to its corresponding instance path: `.../qb-barcode-scanner-simulator/7.1.0-22-04/instances/{N}/config_{N}.yaml`
+frontend/package.json — Frontend Node Dependencies
+Defines the frontend as an ES module project. Runtime dependencies: react@^19.2.0 and react-dom@^19.2.0. Dev dependencies: Vite 7.3.1, @vitejs/plugin-react, ESLint 9 with eslint-plugin-react-hooks and eslint-plugin-react-refresh, globals, and TypeScript type stubs for React. Scripts: dev (run Vite dev server), build (production bundle), lint (ESLint), preview (serve the built dist locally).
 
----
+frontend/package-lock.json — Lockfile
+Auto-generated npm lockfile pinning all transitive dependency versions for reproducible installs. Not manually edited.
 
-**`get_all_active_robots(list_use)`**
-Makes an HTTP GET to `http://192.168.9.2:6019/enabled_robots` to retrieve which robots are currently connected. Depending on `list_use`, it returns either a list of integer robot IDs or full IP addresses (`192.168.8.X`). Results are toasted to the UI and printed.
+frontend/eslint.config.js — ESLint Configuration
+Uses the new flat ESLint config format. Targets all .js/.jsx files. Extends js.configs.recommended, reactHooks.configs.flat.recommended, and reactRefresh.configs.vite. Ignores the dist/ output directory. One custom rule: no-unused-vars errors on unused variables except those matching ^[A-Z_] (all-caps constants).
 
----
+frontend/.gitignore — Frontend Git Ignore
+Standard Vite-generated ignore file. Excludes node_modules/, dist/, dist-ssr/, log files, and editor/IDE directories.
 
-**`connect_to_server(password)`**
-Opens an SSH connection to `192.168.9.2` as user `pvadmin` using the provided password via Paramiko. Returns the SSH client object and stores it in session state. Auto-accepts unknown host keys (not production-safe but appropriate for a LAN tool).
+Dockerfile — Container Build
+Two-stage build. Stage 1 (frontend-build): uses node:20-alpine, installs npm deps, copies the frontend/ directory, and runs npm run build to produce the static dist/. Stage 2: uses python:3.11-slim, installs Python requirements, copies backend.py, copies the built frontend/dist into frontend/dist relative to the app root, exposes port 8000, and starts with python backend.py. Note: the app.mount(...) line in backend.py that would serve the React static files is currently commented out, so as-is the Docker image runs the API but doesn't serve the frontend through it.
 
----
+requirements.txt — Python Dependencies
+Six packages: paramiko==2.12.0 (SSH/SFTP), PyYAML==6.0.1 (listed but the app uses ruamel.yaml), requests==2.31.0 (robot manager HTTP API), streamlit==1.51.0 (leftover from the old architecture — no longer needed), fastapi (unpinned), uvicorn (unpinned), ruamel.yaml (unpinned — now correctly present unlike the old file).
 
-**`get_config_data()`**
-The main data loading function. Does two things:
+.streamlit/config.toml — Streamlit Server Config (Legacy)
+Configures the old Streamlit server: light theme, headless mode, auto-rerun on save, CORS/XSRF disabled, no usage stats. Only relevant to the legacy settings_configs.py app — no longer used by the new FastAPI/React stack.
 
-1. **Loads all 14 application configs** from `config_files` into `st.session_state.configs` as a dict keyed by app name. Each file is read from either the SFTP remote path or the local filesystem.
+.gitignore — Root Git Ignore
+One entry: Indy II Configs and Envs/ — the local dev directory containing real machine config files that must not be committed.
 
-2. **Loads barcode simulator instance configs** — first counts how many instance subdirectories exist (via `find ... | wc -l` on the server, or `os.walk` locally), then reads each instance's YAML into `st.session_state.simulator_configs` as a dict keyed by zero-based index.
-
----
-
-**`turn_payload_detection(turn_on)`**
-Stub function — body is empty (`pass`). Intended to send a command to robots to enable/disable their payload detection sensors. Not yet implemented.
-
----
-
-**`__main__` block — UI**
-
-Runs when the script is executed directly. Sets up the Streamlit page and drives the entire UI flow:
-
-**Session state initialization** — initializes all required keys: `server`, `sftp`, `password`, `map_file`, `barcode_sim_instances`, `testing_on_server`, `current_path`, `configs`, `simulator_configs`, `awaiting_action`, `msg`.
-
-**Connection screen** — if `testing_on_server` is `None`, presents two buttons: run locally (hardcoded path to a local dev directory) or connect to server. Sets `current_path` accordingly.
-
-**Password prompt** — if server mode is chosen but no connection exists yet, shows a password input and a connect button. On success, opens SFTP. On failure, shows an error.
-
-**Main UI (3 tabs)** — only rendered after a successful connection or local mode selection:
-
-- **Tab 1 — Server and Robot Applications**: Shows a grid of toggles for activating/deactivating and enabling/disabling each server application. The robot apps section exists but is fully commented out. The toggles are rendered but not wired to any backend actions yet.
-
-- **Tab 2 — Server Configs**: Three configurable sections:
-  - *Infeed timeout* — slider (30–120s) wired to `qb-ds` config, saved with a button
-  - *Load balancing* — two number inputs for `target_reservation_cost_linear` and `target_reservation_cost_quad` in `arq-gp` config, saved with a button
-  - *Barcode simulator ranges* — dynamically generates one range slider per simulator instance (0–181), updating each instance's `range_start` and `range_end`, saved with a button
-
-- **Tab 3 — Robot Configs**: UI for selecting robots (toggle for all, multiselect hardcoded to `[50, 60, 70]`), payload detection on/off buttons (calling the unimplemented `turn_payload_detection`), and a speed slider (0.5–1.5, not yet wired to any save action).
-
----
-
-### `config.yaml` — Sample Application Config
-
-A representative YAML config for one of the 14 applications (appears to be `qb-ds` based on `input_cell_deactivation_timeout`). Contains:
-- TCP connection info (`tcp_ip`, `tcp_port`)
-- Scan flow flags (`strict_scan_flow`, `input_cell_deactivation_timeout`, `input_cell_deactivation_enabled`)
-- A `cell_map` mapping integer indices to node paths on input gates
-- A `peers` list defining other services this app communicates with (ports, IDs, partition info)
-- A `navigation` list defining gate IDs and their ports on the server IP
-
----
-
-### `config_revision_test.yaml` — Test Config
-
-Identical structure to `config.yaml` but with `input_cell_deactivation_timeout: 30` instead of `70`, and the `peers`/`navigation` lists use slightly different indentation (no leading spaces). Appears to be a file used to test that YAML round-trip read/write works correctly without corrupting formatting.
-
----
-
-### `requirements.txt` — Python Dependencies
-
-Four packages:
-- `paramiko==2.12.0` — SSH/SFTP
-- `PyYAML==6.0.1` — listed but the app actually uses `ruamel.yaml` (likely a leftover or used transitively)
-- `requests==2.31.0` — robot API HTTP calls
-- `streamlit==1.51.0` — UI framework
-
-Note: `ruamel.yaml` is used in the code but absent from this file — this would cause an install failure on a fresh environment.
-
----
-
-### `.streamlit/config.toml` — Streamlit Configuration
-
-Configures the Streamlit server behavior:
-- Light theme
-- Headless mode (no browser auto-open — appropriate for running on a server or packaging)
-- Auto-reruns on file save (dev convenience)
-- CORS and XSRF protection disabled (appropriate for LAN-only internal tool)
-- Usage stats collection disabled
-
----
-
-### `.gitignore`
-
-Excludes the `Indy II Configs and Envs/` directory from version control. This is the local dev path used when running in personal device mode — it contains real machine config files that shouldn't be committed.
-
----
-
-### `README.md` — Setup Instructions
-
-Two-step instructions: activate the included `myenv` virtual environment with `source myenv/bin/activate`, then run with `streamlit run settings_configs.py`.
-
----
-
-## Key Observations
-
-- Several features are **partially or not implemented**: `turn_payload_detection`, robot tab save logic, and the robot apps toggle section are all stubs or commented out.
-- `ruamel.yaml` is **missing from `requirements.txt`** — this will break fresh installs.
-- Toggle widgets in Tab 1 are **rendered but not connected** to any SSH commands or state changes.
-- The app is tightly coupled to a specific network topology (`192.168.9.2`, `192.168.8.X` robot IPs) and a specific directory structure on the remote server.
+README.md — Setup Instructions
+Two-line instructions for the old Streamlit app only: source myenv/bin/activate then streamlit run settings_configs.py. Not updated to reflect the new architecture.

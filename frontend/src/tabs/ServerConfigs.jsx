@@ -1,5 +1,123 @@
-import { useState, useEffect } from "react";
+// 03/17/2026 14:00 MST
+
+import { useState, useEffect, useRef } from "react";
 import { updateConfig, updateBarcodeSim } from "../api";
+
+function SimRangeSlider({ start, end, max, onChange }) {
+    const lastActive = useRef("end");
+    const low = Math.min(start, end);
+    const high = Math.max(start, end);
+    const lowPct = max > 0 ? (low / max) * 100 : 0;
+    const highPct = max > 0 ? (high / max) * 100 : 0;
+    return (
+        <div style={sliderStyles.dualSliderWrapper}>
+            <style>{`
+                .dual-range-thumb {
+                    position: absolute;
+                    width: 100%;
+                    height: 4px;
+                    background: none;
+                    pointer-events: none;
+                    -webkit-appearance: none;
+                    appearance: none;
+                    outline: none;
+                    top: 50%;
+                    transform: translateY(-50%);
+                    margin: 0;
+                }
+                .dual-range-thumb::-webkit-slider-thumb {
+                    -webkit-appearance: none;
+                    appearance: none;
+                    width: 16px;
+                    height: 16px;
+                    border-radius: 50%;
+                    background: #3498db;
+                    cursor: pointer;
+                    pointer-events: all;
+                    border: 2px solid #fff;
+                    box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+                }
+                .dual-range-thumb::-moz-range-thumb {
+                    width: 16px;
+                    height: 16px;
+                    border-radius: 50%;
+                    background: #3498db;
+                    cursor: pointer;
+                    pointer-events: all;
+                    box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+                    border: none;
+                }
+            `}</style>
+            <div style={sliderStyles.dualSliderTrack}>
+                <div style={sliderStyles.dualSliderTrackBg} />
+                <div style={{ ...sliderStyles.dualSliderFill, left: `${lowPct}%`, width: `${highPct - lowPct}%` }} />
+                <input
+                    type="range"
+                    min={0}
+                    max={max}
+                    step={1}
+                    value={start}
+                    className="dual-range-thumb"
+                    style={{ zIndex: lastActive.current === "start" ? 2 : 1 }}
+                    onPointerDown={() => { lastActive.current = "start"; }}
+                    onChange={(e) => onChange("start", Number(e.target.value))}
+                />
+                <input
+                    type="range"
+                    min={0}
+                    max={max}
+                    step={1}
+                    value={end}
+                    className="dual-range-thumb"
+                    style={{ zIndex: lastActive.current === "end" ? 2 : 1 }}
+                    onPointerDown={() => { lastActive.current = "end"; }}
+                    onChange={(e) => onChange("end", Number(e.target.value))}
+                />
+            </div>
+            <div style={sliderStyles.dualSliderValues}>
+                <span style={sliderStyles.sliderValue}>{low}</span>
+                <span style={sliderStyles.sliderValue}>{high}</span>
+            </div>
+        </div>
+    );
+}
+
+const sliderStyles = {
+    dualSliderWrapper: {
+        marginTop: "8px",
+        marginBottom: "4px",
+    },
+    dualSliderTrack: {
+        position: "relative",
+        height: "20px",
+        display: "flex",
+        alignItems: "center",
+    },
+    dualSliderTrackBg: {
+        position: "absolute",
+        width: "100%",
+        height: "4px",
+        backgroundColor: "#e0e0e0",
+        borderRadius: "2px",
+    },
+    dualSliderFill: {
+        position: "absolute",
+        height: "4px",
+        backgroundColor: "#3498db",
+        borderRadius: "2px",
+    },
+    dualSliderValues: {
+        display: "flex",
+        justifyContent: "space-between",
+        marginTop: "4px",
+    },
+    sliderValue: {
+        fontSize: "13px",
+        fontWeight: "600",
+        color: "#3498db",
+        minWidth: "50px",
+    },
+};
 
 export default function ServerConfigs({ configs, setConfigs, simulatorConfigs, setSimulatorConfigs, barcodeSimInstances, maxDestinations }) {
     const [timeout, setTimeout] = useState(configs?.["qb-ds"]?.["input_cell_deactivation_timeout"] ?? 30);
@@ -28,7 +146,7 @@ export default function ServerConfigs({ configs, setConfigs, simulatorConfigs, s
         setTimeoutStatus(null);
         try {
             const updated = { ...configs["qb-ds"], input_cell_deactivation_timeout: timeout };
-            await updateConfig("qb-ds", updated);
+            await updateConfig("qb-ds", "input_cell_deactivation_timeout", timeout);
             setConfigs((prev) => ({ ...prev, "qb-ds": updated }));
             setTimeoutStatus({ ok: true, msg: "Saved." });
         } catch (e) {
@@ -44,7 +162,8 @@ export default function ServerConfigs({ configs, setConfigs, simulatorConfigs, s
                 target_reservation_cost_linear: costLinear,
                 target_reservation_cost_quad: costQuad,
             };
-            await updateConfig("arq-gp", updated);
+            await updateConfig("arq-gp", "target_reservation_cost_linear", costLinear);
+            await updateConfig("arq-gp", "target_reservation_cost_quad", costQuad)
             setConfigs((prev) => ({ ...prev, "arq-gp": updated }));
             setLoadBalanceStatus({ ok: true, msg: "Saved." });
         } catch (e) {
@@ -58,8 +177,8 @@ export default function ServerConfigs({ configs, setConfigs, simulatorConfigs, s
             const updated = { ...simulatorConfigs };
             for (let i = 0; i < barcodeSimInstances; i++) {
                 updated[i] = { ...updated[i], range_start: simRanges[i].start, range_end: simRanges[i].end };
+                await updateBarcodeSim(i+1, simRanges[i].start, simRanges[i].end)
             }
-            await updateBarcodeSim(updated);
             setSimulatorConfigs(updated);
             setSimStatus({ ok: true, msg: "Saved." });
         } catch (e) {
@@ -145,30 +264,12 @@ export default function ServerConfigs({ configs, setConfigs, simulatorConfigs, s
                 {simRanges.map((range, i) => (
                     <div key={i} style={styles.simRow}>
                         <label style={styles.label}>Simulator {i + 1}</label>
-                        <div style={styles.rangeInputs}>
-                            <div style={styles.rangeField}>
-                                <span style={styles.rangeLabel}>Start</span>
-                                <input
-                                    type="number"
-                                    min={0}
-                                    max={maxDestinations}
-                                    value={range.start}
-                                    onChange={(e) => updateSimRange(i, "start", e.target.value)}
-                                    style={styles.numberInput}
-                                />
-                            </div>
-                            <div style={styles.rangeField}>
-                                <span style={styles.rangeLabel}>End</span>
-                                <input
-                                    type="number"
-                                    min={0}
-                                    max={maxDestinations}
-                                    value={range.end}
-                                    onChange={(e) => updateSimRange(i, "end", e.target.value)}
-                                    style={styles.numberInput}
-                                />
-                            </div>
-                        </div>
+                        <SimRangeSlider
+                            start={range.start}
+                            end={range.end}
+                            max={maxDestinations}
+                            onChange={(field, value) => updateSimRange(i, field, value)}
+                        />
                     </div>
                 ))}
                 <button onClick={handleSaveSimRanges} style={styles.button}>Set Simulator Range</button>
@@ -273,16 +374,6 @@ const styles = {
     },
     simRow: {
         marginBottom: "12px",
-    },
-    rangeInputs: {
-        display: "flex",
-        gap: "24px",
-        marginTop: "6px",
-    },
-    rangeField: {
-        display: "flex",
-        alignItems: "center",
-        gap: "8px",
     },
     rangeLabel: {
         fontSize: "13px",

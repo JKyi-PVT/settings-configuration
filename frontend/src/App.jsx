@@ -3,6 +3,7 @@ import { connectToServer, getConfigs } from "./api";
 import ServerApps from "./tabs/ServerApps";
 import ServerConfigs from "./tabs/ServerConfigs";
 import RobotConfigs from "./tabs/RobotConfigs";
+import { use } from "react";
 
 export default function App() {
     const [connected, setConnected] = useState(false);
@@ -16,6 +17,7 @@ export default function App() {
     const [barcodeSimInstances, setBarcodeSimInstances] = useState(0);
     const [maxVelocity, setMaxVelocity] = useState(1.0);
     const [maxDestinations, setMaxDestinations] = useState(0);
+    const [serverApps, setServerApps] = useState(null)
 
     async function handleConnect() {
         setLoading(true);
@@ -28,6 +30,7 @@ export default function App() {
             setBarcodeSimInstances(data.barcode_sim_instances);
             setMaxVelocity(data.max_velocity);
             setMaxDestinations(data.max_destinations);
+            setServerApps(data.server_apps)
             setConnected(true);
         } catch (e) {
             setError(e.message);
@@ -83,7 +86,7 @@ export default function App() {
                 ))}
             </div>
             <div style={styles.tabContent}>
-                {activeTab === 0 && <ServerApps />}
+                {activeTab === 0 && <ServerApps serverApps={serverApps}/>}
                 {activeTab === 1 && (
                     <ServerConfigs
                         configs={configs}

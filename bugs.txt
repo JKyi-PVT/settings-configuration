@@ -1,0 +1,10 @@
+you can still see configs even if they don't exist in the yaml files
+changing configs might cause comments to disappear - fixed i think, changed logic so that the frontend javascript files no longer edit the dictionaries
+robot services do not update even after connecting to a robot (subsequently, server apps probably won't update their statuses after turning off or restarting)
+if you turn off a robot while the app is trying to connect to robots, it gets hung up on that process
+max destinations is sometimes incorrect? -> depends on the sortplan it looks like
+restart services stopped working after i added in the extra services in server_apps variable -> you put the actual restart logic in a nested for loop like a fucking dumbass
+
+stuff to add:
+configurations for conveyor drop off time
+robot acceleration (maybe add the deceleration as well?)

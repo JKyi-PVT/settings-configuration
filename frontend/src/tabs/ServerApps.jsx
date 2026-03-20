@@ -1,19 +1,7 @@
+// 03/19/2026 10:00 MST
+
 import { useState, useEffect } from "react";
 import { checkServices, restartService, restartAllServices, restartAllRobots, connectRobots, restartRobotService } from "../api";
-
-const SERVER_APPS = [
-    "arq-fipp",
-    "arq-gp",
-    "device-storage",
-    "qb-api",
-    "qb-barcode-scanner-simulator",
-    "qb-ds",
-    "qb-frontend",
-    "qb-logic",
-    "qb-storage",
-    "qb-tcp-bridge",
-    "system-portal",
-];
 
 const ROBOT_APPS = [
     "robot-manager",
@@ -22,7 +10,7 @@ const ROBOT_APPS = [
     "robot-diagnostics-bridge",
 ];
 
-export default function ServerApps() {
+export default function ServerApps({ serverApps }) {
     const [serviceStatus, setServiceStatus] = useState({});
     const [statusMsg, setStatusMsg] = useState(null);
     const [restartingAll, setRestartingAll] = useState(false);
@@ -75,9 +63,9 @@ export default function ServerApps() {
     async function handleRestartRobotService(service) {
         if (selectedRobot === null) return;
         setRestarting((prev) => ({ ...prev, [service]: true }));
-        setStatusMsg(null)
+        setStatusMsg(null);
         try {
-            await restartRobotService(service)
+            await restartRobotService(service);
             setStatusMsg({ ok: true, msg: `${service} restarted on robot ${selectedRobot}.` });
         } catch (e) {
             setStatusMsg({ ok: false, msg: `Failed to restart ${service} on robot ${selectedRobot}: ` + e.message });
@@ -183,7 +171,7 @@ export default function ServerApps() {
                         ↻ {restartingAll ? "Restarting..." : "Restart All"}
                     </button>
                 </div>
-                {SERVER_APPS.map((service) => (
+                {serverApps.map((service) => (
                     <ServiceRow key={service} service={service} />
                 ))}
             </div>
