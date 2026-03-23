@@ -5,3 +5,4 @@ streamlit==1.51.0
 fastapi
 uvicorn
 ruamel.yaml
+pyinstaller

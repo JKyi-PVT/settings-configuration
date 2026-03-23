@@ -1,9 +1,10 @@
-import { useState } from "react";
+// 03/20/2026 10:00 MST
+
+import { useState, useEffect, useRef } from "react";
 import { connectToServer, getConfigs } from "./api";
 import ServerApps from "./tabs/ServerApps";
 import ServerConfigs from "./tabs/ServerConfigs";
 import RobotConfigs from "./tabs/RobotConfigs";
-import { use } from "react";
 
 export default function App() {
     const [connected, setConnected] = useState(false);
@@ -17,7 +18,27 @@ export default function App() {
     const [barcodeSimInstances, setBarcodeSimInstances] = useState(0);
     const [maxVelocity, setMaxVelocity] = useState(1.0);
     const [maxDestinations, setMaxDestinations] = useState(0);
-    const [serverApps, setServerApps] = useState(null)
+    const [serverApps, setServerApps] = useState([]);
+
+    // Tracks whether any tab has undo history — used for beforeunload warning
+    const tabHistoriesRef = useRef({ serverConfigs: false, robotConfigs: false });
+
+    function handleHistoryChange(tab, hasHistory) {
+        tabHistoriesRef.current[tab] = hasHistory;
+    }
+
+    useEffect(() => {
+        function handleBeforeUnload(e) {
+            if (Object.values(tabHistoriesRef.current).some(Boolean)) {
+                e.preventDefault();
+                e.returnValue = '';
+            }
+        }
+        if (connected) {
+            window.addEventListener('beforeunload', handleBeforeUnload);
+            return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+        }
+    }, [connected]);
 
     async function handleConnect() {
         setLoading(true);
@@ -30,7 +51,7 @@ export default function App() {
             setBarcodeSimInstances(data.barcode_sim_instances);
             setMaxVelocity(data.max_velocity);
             setMaxDestinations(data.max_destinations);
-            setServerApps(data.server_apps)
+            setServerApps(data.server_apps);
             setConnected(true);
         } catch (e) {
             setError(e.message);
@@ -86,7 +107,7 @@ export default function App() {
                 ))}
             </div>
             <div style={styles.tabContent}>
-                {activeTab === 0 && <ServerApps serverApps={serverApps}/>}
+                {activeTab === 0 && <ServerApps serverApps={serverApps} />}
                 {activeTab === 1 && (
                     <ServerConfigs
                         configs={configs}
@@ -95,11 +116,13 @@ export default function App() {
                         setSimulatorConfigs={setSimulatorConfigs}
                         barcodeSimInstances={barcodeSimInstances}
                         maxDestinations={maxDestinations}
+                        onHistoryChange={(has) => handleHistoryChange("serverConfigs", has)}
                     />
                 )}
                 {activeTab === 2 && (
                     <RobotConfigs
                         maxVelocity={maxVelocity}
+                        onHistoryChange={(has) => handleHistoryChange("robotConfigs", has)}
                     />
                 )}
             </div>

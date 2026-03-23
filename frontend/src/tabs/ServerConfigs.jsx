@@ -1,7 +1,34 @@
-// 03/17/2026 14:00 MST
+// 03/20/2026 10:00 MST
 
 import { useState, useEffect, useRef } from "react";
 import { updateConfig, updateBarcodeSim } from "../api";
+import { useUndoRedo } from "../hooks/UseUndoRedo";
+import ConfirmModal from "../components/ConfirmModal";
+
+function computeDiff(from, to) {
+    const changes = [];
+    if (from.timeout !== to.timeout) {
+        changes.push({ label: "Infeed Timeout", from: `${from.timeout} sec`, to: `${to.timeout} sec` });
+    }
+    if (from.costLinear !== to.costLinear) {
+        changes.push({ label: "Target Cost Linear", from: String(from.costLinear), to: String(to.costLinear) });
+    }
+    if (from.costQuad !== to.costQuad) {
+        changes.push({ label: "Target Cost Quad", from: String(from.costQuad), to: String(to.costQuad) });
+    }
+    (from.simRanges || []).forEach((range, i) => {
+        const toRange = (to.simRanges || [])[i];
+        if (!toRange) return;
+        if (range.start !== toRange.start || range.end !== toRange.end) {
+            changes.push({
+                label: `Simulator ${i + 1} Range`,
+                from: `${range.start} – ${range.end}`,
+                to: `${toRange.start} – ${toRange.end}`,
+            });
+        }
+    });
+    return changes;
+}
 
 function SimRangeSlider({ start, end, max, onChange }) {
     const lastActive = useRef("end");
@@ -119,7 +146,7 @@ const sliderStyles = {
     },
 };
 
-export default function ServerConfigs({ configs, setConfigs, simulatorConfigs, setSimulatorConfigs, barcodeSimInstances, maxDestinations }) {
+export default function ServerConfigs({ configs, setConfigs, simulatorConfigs, setSimulatorConfigs, barcodeSimInstances, maxDestinations, onHistoryChange }) {
     const [timeout, setTimeout] = useState(configs?.["qb-ds"]?.["input_cell_deactivation_timeout"] ?? 30);
     const [costLinear, setCostLinear] = useState(configs?.["arq-gp"]?.["target_reservation_cost_linear"] ?? 0);
     const [costQuad, setCostQuad] = useState(configs?.["arq-gp"]?.["target_reservation_cost_quad"] ?? 0);
@@ -128,6 +155,9 @@ export default function ServerConfigs({ configs, setConfigs, simulatorConfigs, s
     const [timeoutStatus, setTimeoutStatus] = useState(null);
     const [loadBalanceStatus, setLoadBalanceStatus] = useState(null);
     const [simStatus, setSimStatus] = useState(null);
+    const [restoreStatus, setRestoreStatus] = useState(null);
+
+    const initialized = useRef(false);
 
     useEffect(() => {
         if (simulatorConfigs) {
@@ -142,12 +172,97 @@ export default function ServerConfigs({ configs, setConfigs, simulatorConfigs, s
         }
     }, [simulatorConfigs, barcodeSimInstances]);
 
+    async function onRestore(snapshot) {
+        setRestoreStatus(null);
+        try {
+            setTimeout(snapshot.timeout);
+            setCostLinear(snapshot.costLinear);
+            setCostQuad(snapshot.costQuad);
+            setSimRanges(snapshot.simRanges);
+
+            await updateConfig("qb-ds", "input_cell_deactivation_timeout", snapshot.timeout);
+            setConfigs(prev => ({
+                ...prev,
+                "qb-ds": { ...prev["qb-ds"], input_cell_deactivation_timeout: snapshot.timeout },
+            }));
+
+            await updateConfig("arq-gp", "target_reservation_cost_linear", snapshot.costLinear);
+            await updateConfig("arq-gp", "target_reservation_cost_quad", snapshot.costQuad);
+            setConfigs(prev => ({
+                ...prev,
+                "arq-gp": {
+                    ...prev["arq-gp"],
+                    target_reservation_cost_linear: snapshot.costLinear,
+                    target_reservation_cost_quad: snapshot.costQuad,
+                },
+            }));
+
+            const updatedSimConfigs = { ...simulatorConfigs };
+            for (let i = 0; i < snapshot.simRanges.length; i++) {
+                updatedSimConfigs[i] = {
+                    ...updatedSimConfigs[i],
+                    range_start: snapshot.simRanges[i].start,
+                    range_end: snapshot.simRanges[i].end,
+                };
+            }
+            await updateBarcodeSim(updatedSimConfigs);
+            setSimulatorConfigs(updatedSimConfigs);
+
+            setRestoreStatus({ ok: true, msg: "Reverted successfully." });
+        } catch (e) {
+            setRestoreStatus({ ok: false, msg: e.message });
+        }
+    }
+
+    const {
+        initState,
+        pushState,
+        undo,
+        redo,
+        canUndo,
+        canRedo,
+        pendingUndo,
+        confirmUndo,
+        cancelUndo,
+        hasHistory,
+    } = useUndoRedo(onRestore);
+
+    // Initialize baseline snapshot once simRanges are populated
+    useEffect(() => {
+        if (!initialized.current && simRanges.length > 0 && configs) {
+            initState({
+                timeout: configs["qb-ds"]["input_cell_deactivation_timeout"],
+                costLinear: configs["arq-gp"]["target_reservation_cost_linear"],
+                costQuad: configs["arq-gp"]["target_reservation_cost_quad"],
+                simRanges: simRanges.map(r => ({ ...r })),
+            });
+            initialized.current = true;
+        }
+    }, [simRanges, configs]);
+
+    // Notify App.jsx when history presence changes
+    useEffect(() => {
+        onHistoryChange(hasHistory);
+    }, [hasHistory]);
+
+    function currentSnapshot() {
+        return {
+            timeout,
+            costLinear,
+            costQuad,
+            simRanges: simRanges.map(r => ({ ...r })),
+        };
+    }
+
     async function handleSaveTimeout() {
         setTimeoutStatus(null);
         try {
-            const updated = { ...configs["qb-ds"], input_cell_deactivation_timeout: timeout };
             await updateConfig("qb-ds", "input_cell_deactivation_timeout", timeout);
-            setConfigs((prev) => ({ ...prev, "qb-ds": updated }));
+            setConfigs(prev => ({
+                ...prev,
+                "qb-ds": { ...prev["qb-ds"], input_cell_deactivation_timeout: timeout },
+            }));
+            pushState(currentSnapshot());
             setTimeoutStatus({ ok: true, msg: "Saved." });
         } catch (e) {
             setTimeoutStatus({ ok: false, msg: e.message });
@@ -157,14 +272,17 @@ export default function ServerConfigs({ configs, setConfigs, simulatorConfigs, s
     async function handleSaveLoadBalance() {
         setLoadBalanceStatus(null);
         try {
-            const updated = {
-                ...configs["arq-gp"],
-                target_reservation_cost_linear: costLinear,
-                target_reservation_cost_quad: costQuad,
-            };
             await updateConfig("arq-gp", "target_reservation_cost_linear", costLinear);
-            await updateConfig("arq-gp", "target_reservation_cost_quad", costQuad)
-            setConfigs((prev) => ({ ...prev, "arq-gp": updated }));
+            await updateConfig("arq-gp", "target_reservation_cost_quad", costQuad);
+            setConfigs(prev => ({
+                ...prev,
+                "arq-gp": {
+                    ...prev["arq-gp"],
+                    target_reservation_cost_linear: costLinear,
+                    target_reservation_cost_quad: costQuad,
+                },
+            }));
+            pushState(currentSnapshot());
             setLoadBalanceStatus({ ok: true, msg: "Saved." });
         } catch (e) {
             setLoadBalanceStatus({ ok: false, msg: e.message });
@@ -177,9 +295,10 @@ export default function ServerConfigs({ configs, setConfigs, simulatorConfigs, s
             const updated = { ...simulatorConfigs };
             for (let i = 0; i < barcodeSimInstances; i++) {
                 updated[i] = { ...updated[i], range_start: simRanges[i].start, range_end: simRanges[i].end };
-                await updateBarcodeSim(i+1, simRanges[i].start, simRanges[i].end)
             }
+            await updateBarcodeSim(updated);
             setSimulatorConfigs(updated);
+            pushState(currentSnapshot());
             setSimStatus({ ok: true, msg: "Saved." });
         } catch (e) {
             setSimStatus({ ok: false, msg: e.message });
@@ -194,14 +313,48 @@ export default function ServerConfigs({ configs, setConfigs, simulatorConfigs, s
         });
     }
 
+    const diffChanges = pendingUndo ? computeDiff(pendingUndo.from, pendingUndo.to) : null;
+
     return (
         <div style={styles.wrapper}>
-            <h2 style={styles.header}>Server Configurations</h2>
+            <ConfirmModal
+                changes={diffChanges}
+                onConfirm={confirmUndo}
+                onCancel={cancelUndo}
+            />
+
+            <div style={styles.toolbar}>
+                <h2 style={styles.header}>Server Configurations</h2>
+                <div style={styles.historyBtns}>
+                    <button
+                        onClick={undo}
+                        disabled={!canUndo}
+                        style={{ ...styles.historyBtn, ...(canUndo ? {} : styles.historyBtnDisabled) }}
+                        title="Undo"
+                    >
+                        ↩ Undo
+                    </button>
+                    <button
+                        onClick={redo}
+                        disabled={!canRedo}
+                        style={{ ...styles.historyBtn, ...(canRedo ? {} : styles.historyBtnDisabled) }}
+                        title="Redo"
+                    >
+                        Redo ↪
+                    </button>
+                </div>
+            </div>
+
+            {restoreStatus && (
+                <p style={{ ...styles.status, color: restoreStatus.ok ? "green" : "#c0392b", marginBottom: "12px" }}>
+                    {restoreStatus.msg}
+                </p>
+            )}
 
             {/* Infeed Timeout */}
             <div style={styles.section}>
                 <h3 style={styles.sectionTitle}>Infeed Timeout</h3>
-                <div style={styles.sectionSubtitle}>Time before an infeed stations times out waiting for a package</div>
+                <div style={styles.sectionSubtitle}>Time before an infeed station times out waiting for a package</div>
                 <div style={styles.sliderRow}>
                     <span style={styles.sliderMin}>{10}sec</span>
                     <input
@@ -289,13 +442,37 @@ const styles = {
         maxWidth: "700px",
         width: "100%",
     },
+    toolbar: {
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        borderBottom: "2px solid #c0392b",
+        paddingBottom: "8px",
+        marginBottom: "24px",
+    },
     header: {
         fontSize: "20px",
         fontWeight: "700",
         color: "#c0392b",
-        borderBottom: "2px solid #c0392b",
-        paddingBottom: "8px",
-        marginBottom: "24px",
+        margin: 0,
+    },
+    historyBtns: {
+        display: "flex",
+        gap: "8px",
+    },
+    historyBtn: {
+        padding: "6px 14px",
+        fontSize: "13px",
+        backgroundColor: "#3498db",
+        color: "#fff",
+        border: "none",
+        borderRadius: "4px",
+        cursor: "pointer",
+        fontWeight: "600",
+    },
+    historyBtnDisabled: {
+        backgroundColor: "#ccc",
+        cursor: "not-allowed",
     },
     section: {
         marginBottom: "32px",

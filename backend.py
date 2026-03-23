@@ -4,6 +4,7 @@
 import paramiko
 import time
 import os
+import sys
 import requests
 import json
 import subprocess
@@ -537,7 +538,14 @@ def update_speed(request: SpeedRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# app.mount("/", StaticFiles(directory="frontend/dist", html=True), name="static")
+if getattr(sys, 'frozen', False):
+    _base = sys._MEIPASS
+else:
+    _base = os.path.dirname(os.path.abspath(__file__))
+ 
+_dist = os.path.join(_base, "frontend", "dist")
+
+app.mount("/", StaticFiles(directory="frontend/dist", html=True), name="static")
 
 if __name__ == "__main__":
     import uvicorn
