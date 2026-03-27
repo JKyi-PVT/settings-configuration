@@ -146,7 +146,7 @@ const sliderStyles = {
     },
 };
 
-export default function ServerConfigs({ configs, setConfigs, simulatorConfigs, setSimulatorConfigs, barcodeSimInstances, maxDestinations, onHistoryChange }) {
+export default function ServerConfigs({ configs, setConfigs, simulatorConfigs, setSimulatorConfigs, barcodeSimInstances, maxDestinations, onHistoryChange, floorplans, sortplans, currentFloorplan, currentSortplan }) {
     const [timeout, setTimeout] = useState(configs?.["qb-ds"]?.["input_cell_deactivation_timeout"] ?? 30);
     const [costLinear, setCostLinear] = useState(configs?.["arq-gp"]?.["target_reservation_cost_linear"] ?? 0);
     const [costQuad, setCostQuad] = useState(configs?.["arq-gp"]?.["target_reservation_cost_quad"] ?? 0);
@@ -156,6 +156,9 @@ export default function ServerConfigs({ configs, setConfigs, simulatorConfigs, s
     const [loadBalanceStatus, setLoadBalanceStatus] = useState(null);
     const [simStatus, setSimStatus] = useState(null);
     const [restoreStatus, setRestoreStatus] = useState(null);
+
+    const [selectedFloorplan, setSelectedFloorplan] = useState(currentFloorplan);
+    const [selectedSortplan, setSelectedSortplan] = useState(currentSortplan);
 
     const initialized = useRef(false);
 
@@ -313,6 +316,11 @@ export default function ServerConfigs({ configs, setConfigs, simulatorConfigs, s
         });
     }
 
+    function extractFileNameWithoutType(name){
+        nameWithoutType = name.split('.')[0]
+        return nameWithoutType.split('/')[6];
+    }
+
     const diffChanges = pendingUndo ? computeDiff(pendingUndo.from, pendingUndo.to) : null;
 
     return (
@@ -376,6 +384,7 @@ export default function ServerConfigs({ configs, setConfigs, simulatorConfigs, s
                 )}
             </div>
 
+
             {/* Load Balancing */}
             <div style={styles.section}>
                 <h3 style={styles.sectionTitle}>Load Balancing</h3>
@@ -431,6 +440,51 @@ export default function ServerConfigs({ configs, setConfigs, simulatorConfigs, s
                         {simStatus.msg}
                     </p>
                 )}
+            </div>
+            <div style={styles.label}>Floorplans and Sortplans</div>
+            <div style={styles.sectionSubtitle}>Select floorplan or sortplan files to update the system's layout and sorting logic.</div>
+            <div style={styles.section}>
+                <h3 style={styles.label}>Floorplan Files</h3>
+                <div style={styles.fileRow}>
+                    {floorplans.length > 0 && (
+                    <select
+                        value={selectedFloorplan}
+                        onChange={(e) => setSelectedFloorplan(e.target.value)}
+                        style={styles.select}
+                    >
+                        <option value="">Select Floorplan</option>
+                        {floorplans.map((fp) => {
+                            const name = extractFileNameWithoutType(fp);
+                            return (
+                            <option key={fp} value={name}>
+                                {name}
+                            </option>
+                        );})}
+                    </select>
+                    )}
+                </div>
+                
+            </div>
+            <div style={styles.section}>
+                <h3 style={styles.label}>Sortplan Files</h3>
+                <div style={styles.fileRow}>
+                {sortplans.length > 0 && (   <select
+                        value={selectedSortplan}
+                        onChange={(e) => setSelectedSortplan(e.target.value)}
+                        style={styles.select}
+                    >
+                        <option value="">Select Sortplan</option>
+                        {sortplans.map((sp) => {
+                            const name = extractFileNameWithoutType(sp);
+                            return (
+                                <option key={sp.id} value={name}>
+                                    {name}
+                                </option>
+                            );
+                        })}
+                    </select>
+                )}
+                </div>
             </div>
         </div>
     );
@@ -556,5 +610,19 @@ const styles = {
         fontSize: "13px",
         color: "#666",
         minWidth: "30px",
+    },
+    fileRow: {
+        display: "flex",
+        alignItems: "center",
+        gap: "12px",
+        padding: "12px 20px",
+        borderBottom: "1px solid #f0f0f0",
+    },
+    select: {
+        padding: "7px 10px",
+        fontSize: "13px",
+        border: "1px solid #ccc",
+        borderRadius: "4px",
+        cursor: "pointer",
     },
 };

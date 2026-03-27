@@ -1,4 +1,4 @@
-const BASE_URL = "http://localhost:8001";
+const BASE_URL = "";
 
 async function handleResponse(res) {
     const data = await res.json();
@@ -14,6 +14,11 @@ export async function connectToServer(password) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ password }),
     });
+    return handleResponse(res);
+}
+
+export async function getScenarioFiles(type) {
+    const res = await fetch(`${BASE_URL}/scenario/${type}`);
     return handleResponse(res);
 }
 

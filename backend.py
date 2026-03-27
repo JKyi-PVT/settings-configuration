@@ -1,12 +1,15 @@
 #!/usr/bin/python3
 # 03/05/2026 16:00 MST
 
+from operator import is_
+
 import paramiko
 import time
 import os
 import sys
 import requests
 import json
+import webbrowser
 import subprocess
 from ruamel.yaml import YAML
 from typing import Any
@@ -44,6 +47,8 @@ max_destinations = 0
 max_velocity = 0
 ip_list = None
 robot_sftp_list = None
+floorplan_list = {}
+sortplan_list = {}
 sorting_module_configs = {}
 frs_version = '7.1.0'
 
@@ -118,9 +123,30 @@ def create_backup():
 @app.get("/emergency/load_backup")
 def load_backup():
     is_server_connected()
-    server.exec("rsync -avn --delete /var/lib/backup_appcenter/ /var/lib/appcenter/")
+    server.exec_command("rsync -avn --delete /var/lib/backup_appcenter/ /var/lib/appcenter/")
     create_backup()
 
+def get_scenario_files(type):
+    global floorplan_list, sortplan_list
+    is_server_connected()
+    cmd = f"find /home/pvadmin/envs/cx-local/designs/{type} -type f -name '*.json'"
+    _, ssh_stdout, ssh_stderr = server.exec_command(cmd)
+    test_output = ssh_stdout.read().decode('utf-8').strip()
+    print(test_output)
+    files = test_output.split("\n")
+    raw_output = ssh_stdout.readlines()
+    list = []
+
+    for file_path in files:
+        file_name = file_path.split("/")[-1]
+        if type == "floorplans":
+            floorplan_list[file_name] = file_path
+        elif type == "sortplans":
+             sortplan_list[file_name] = file_path
+        list.append(file_path)
+
+    print(list)
+    return list
 
 @app.post("/connect")
 def connect(request: ConnectRequest):
@@ -145,8 +171,6 @@ def get_configs():
     global configs, simulator_configs, floorplan_data, floorplan_path, sortplan_path, barcode_sim_instances, max_destinations, max_velocity
 
     get_server_apps()
-
-    print(server_apps)
 
     if server is None:
         raise HTTPException(status_code=400, detail="Not connected to server")
@@ -216,6 +240,11 @@ def get_configs():
                     bin_number = 0
                 if int(bin_number) > max_destinations:
                     max_destinations = int(bin_number)
+    
+    floorplan_list = get_scenario_files("floorplans")
+    sortplan_list = get_scenario_files("sortplans")
+    current_sortplan = sortplan_path.split("/")[-1]
+    current_floorplan = floorplan_path.split("/")[-1]
 
     return {
         "configs": configs,
@@ -223,7 +252,11 @@ def get_configs():
         "barcode_sim_instances": barcode_sim_instances,
         "max_velocity": max_velocity,
         "max_destinations": max_destinations,
-        "server_apps": server_apps
+        "server_apps": server_apps,
+        "floorplans": floorplan_list, 
+        "sortplans": sortplan_list,
+        "current_floorplan": current_floorplan,
+        "current_sortplan": current_sortplan     
     }
 
 
@@ -545,8 +578,16 @@ else:
  
 _dist = os.path.join(_base, "frontend", "dist")
 
-app.mount("/", StaticFiles(directory="frontend/dist", html=True), name="static")
+print(f"MEIPASS: {getattr(sys, '_MEIPASS', 'NOT FROZEN')}")
+print(f"Looking for frontend/dist at: {_dist}")
+print(f"Path exists: {os.path.exists(_dist)}")
+
+if os.path.exists(_dist):
+    app.mount("/", StaticFiles(directory=_dist, html=True), name="static")
+else:
+    print(f"WARNING: frontend/dist not found at {_dist}")
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+    webbrowser.open("http://localhost:8000")
+    uvicorn.run(app, host="0.0.0.0", port=8000)

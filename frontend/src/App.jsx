@@ -19,6 +19,10 @@ export default function App() {
     const [maxVelocity, setMaxVelocity] = useState(1.0);
     const [maxDestinations, setMaxDestinations] = useState(0);
     const [serverApps, setServerApps] = useState([]);
+    const [floorplans, setFloorplans] = useState([]);
+    const [sortplans, setSortplans] = useState([]);
+    const [currentFloorplan, setCurrentFloorplan] = useState("");
+    const [currentSortplan, setCurrentSortplan] = useState("");
 
     // Tracks whether any tab has undo history — used for beforeunload warning
     const tabHistoriesRef = useRef({ serverConfigs: false, robotConfigs: false });
@@ -52,6 +56,10 @@ export default function App() {
             setMaxVelocity(data.max_velocity);
             setMaxDestinations(data.max_destinations);
             setServerApps(data.server_apps);
+            setFloorplans(data.floorplans);
+            setSortplans(data.sortplans);
+            setCurrentFloorplan(data.current_floorplan);
+            setCurrentSortplan(data.current_sortplan);
             setConnected(true);
         } catch (e) {
             setError(e.message);
@@ -116,6 +124,10 @@ export default function App() {
                         setSimulatorConfigs={setSimulatorConfigs}
                         barcodeSimInstances={barcodeSimInstances}
                         maxDestinations={maxDestinations}
+                        floorplans={floorplans}
+                        sortplans={sortplans}
+                        currentFloorplan={currentFloorplan}
+                        currentSortplan={currentSortplan}
                         onHistoryChange={(has) => handleHistoryChange("serverConfigs", has)}
                     />
                 )}

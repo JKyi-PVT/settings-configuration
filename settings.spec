@@ -6,13 +6,16 @@ import os
 
 block_cipher = None
 
+# Resolve absolute path to frontend/dist relative to this spec file's location
+spec_dir = os.path.dirname(os.path.abspath(SPEC))
+frontend_dist = os.path.join(spec_dir, 'frontend', 'dist')
+
 a = Analysis(
-    ['backend.py'],
-    pathex=[],
+    [os.path.join(spec_dir, 'backend.py')],
+    pathex=[spec_dir],
     binaries=[],
-    # Bundle the built React frontend static files into the exe
     datas=[
-        (os.path.join('frontend', 'dist'), os.path.join('frontend', 'dist')),
+        (frontend_dist, os.path.join('frontend', 'dist')),
     ],
     hiddenimports=[
         # Paramiko and its cryptography dependencies are often missed by PyInstaller
@@ -52,7 +55,6 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
-        # Exclude the old Streamlit stack — not needed in the exe
         'streamlit',
         'tornado',
         'altair',
