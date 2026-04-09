@@ -1,12 +1,12 @@
 test on richmond server - in progress
 add in authentication levels - after test
 more features:
-    - option to change which floor and sortplans we use
-    - app statuses refresh regularly
-    - robot app status refreshes after connecting
+    - option to change which floor and sortplans we use - done
+    - app statuses refresh regularly - done
+    - robot app status refreshes after connecting - done
     - robot accleration?
     - is there a setting for navigation mode on the robots?
     - error handling if a setting doesn't exist (input_cell_deactivation_timeout did not exist in topeka)
-    - add buttons to create and load backups
+    - add buttons to create and load backups - done
 distrubute to team - do after first two
 

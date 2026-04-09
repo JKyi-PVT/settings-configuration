@@ -1,7 +1,7 @@
 // 03/20/2026 10:00 MST
 
 import { useState, useEffect, useRef } from "react";
-import { updateConfig, updateBarcodeSim } from "../api";
+import { updateConfig, updateBarcodeSim, updateScenarioFiles } from "../api";
 import { useUndoRedo } from "../hooks/UseUndoRedo";
 import ConfirmModal from "../components/ConfirmModal";
 
@@ -146,7 +146,7 @@ const sliderStyles = {
     },
 };
 
-export default function ServerConfigs({ configs, setConfigs, simulatorConfigs, setSimulatorConfigs, barcodeSimInstances, maxDestinations, onHistoryChange, floorplans, sortplans, currentFloorplan, currentSortplan }) {
+export default function ServerConfigs({ configs, setConfigs, simulatorConfigs, setSimulatorConfigs, barcodeSimInstances, maxDestinations, onHistoryChange, onResetHistoryReady, floorplans, sortplans, currentFloorplan, currentSortplan }) {
     const [timeout, setTimeout] = useState(configs?.["qb-ds"]?.["input_cell_deactivation_timeout"] ?? 30);
     const [costLinear, setCostLinear] = useState(configs?.["arq-gp"]?.["target_reservation_cost_linear"] ?? 0);
     const [costQuad, setCostQuad] = useState(configs?.["arq-gp"]?.["target_reservation_cost_quad"] ?? 0);
@@ -220,6 +220,7 @@ export default function ServerConfigs({ configs, setConfigs, simulatorConfigs, s
     const {
         initState,
         pushState,
+        resetHistory,
         undo,
         redo,
         canUndo,
@@ -229,6 +230,11 @@ export default function ServerConfigs({ configs, setConfigs, simulatorConfigs, s
         cancelUndo,
         hasHistory,
     } = useUndoRedo(onRestore);
+
+     // Expose resetHistory to App.jsx
+    useEffect(() => {
+        if (onResetHistoryReady) onResetHistoryReady(resetHistory);
+    }, []);
 
     // Initialize baseline snapshot once simRanges are populated
     useEffect(() => {
@@ -254,6 +260,8 @@ export default function ServerConfigs({ configs, setConfigs, simulatorConfigs, s
             costLinear,
             costQuad,
             simRanges: simRanges.map(r => ({ ...r })),
+            selectedFloorplan,
+            selectedSortplan,
         };
     }
 
@@ -298,8 +306,9 @@ export default function ServerConfigs({ configs, setConfigs, simulatorConfigs, s
             const updated = { ...simulatorConfigs };
             for (let i = 0; i < barcodeSimInstances; i++) {
                 updated[i] = { ...updated[i], range_start: simRanges[i].start, range_end: simRanges[i].end };
+                await updateBarcodeSim(i + 1, simRanges[i].start, simRanges[i].end);
             }
-            await updateBarcodeSim(updated);
+            
             setSimulatorConfigs(updated);
             pushState(currentSnapshot());
             setSimStatus({ ok: true, msg: "Saved." });
@@ -317,8 +326,24 @@ export default function ServerConfigs({ configs, setConfigs, simulatorConfigs, s
     }
 
     function extractFileNameWithoutType(name){
-        nameWithoutType = name.split('.')[0]
-        return nameWithoutType.split('/')[6];
+        const nameWithoutType = name.split('.')[0]
+        return nameWithoutType.split('/')[7];
+    }
+
+    async function updateFloorplan() {
+        try {
+            await updateScenarioFiles("floorplan", selectedFloorplan);
+        } catch (e) {
+            console.error("Failed to update floorplan:", e);
+        }
+    }
+
+    async function updateSortplan() {
+        try {
+            await updateScenarioFiles("sortplan", selectedSortplan);
+        } catch (e) {
+            console.error("Failed to update sortplan:", e);
+        }
     }
 
     const diffChanges = pendingUndo ? computeDiff(pendingUndo.from, pendingUndo.to) : null;
@@ -388,6 +413,7 @@ export default function ServerConfigs({ configs, setConfigs, simulatorConfigs, s
             {/* Load Balancing */}
             <div style={styles.section}>
                 <h3 style={styles.sectionTitle}>Load Balancing</h3>
+                <div style={styles.sectionSubtitle}>Parameters to balance out the amount of robots sent to each infeed</div>
                 <div style={styles.row}>
                     <label style={styles.label}>Target cost linear</label>
                     <input
@@ -423,6 +449,8 @@ export default function ServerConfigs({ configs, setConfigs, simulatorConfigs, s
             {/* Barcode Simulator Ranges */}
             <div style={styles.section}>
                 <h3 style={styles.sectionTitle}>Barcode Simulator Ranges</h3>
+                <div style={styles.sectionSubtitle}>Adjust the range of destinations for the barcode simulator</div>
+
                 {simRanges.map((range, i) => (
                     <div key={i} style={styles.simRow}>
                         <label style={styles.label}>Simulator {i + 1}</label>
@@ -441,18 +469,19 @@ export default function ServerConfigs({ configs, setConfigs, simulatorConfigs, s
                     </p>
                 )}
             </div>
+            <div style={styles.section}>
             <div style={styles.label}>Floorplans and Sortplans</div>
             <div style={styles.sectionSubtitle}>Select floorplan or sortplan files to update the system's layout and sorting logic.</div>
-            <div style={styles.section}>
+            
                 <h3 style={styles.label}>Floorplan Files</h3>
                 <div style={styles.fileRow}>
                     {floorplans.length > 0 && (
                     <select
-                        value={selectedFloorplan}
+                        value={selectedFloorplan ?? "Hello"}
                         onChange={(e) => setSelectedFloorplan(e.target.value)}
                         style={styles.select}
                     >
-                        <option value="">Select Floorplan</option>
+                        
                         {floorplans.map((fp) => {
                             const name = extractFileNameWithoutType(fp);
                             return (
@@ -462,11 +491,8 @@ export default function ServerConfigs({ configs, setConfigs, simulatorConfigs, s
                         );})}
                     </select>
                     )}
+                    <button onClick={updateFloorplan} style={styles.button}>Set Floorplan</button>
                 </div>
-                
-            </div>
-            <div style={styles.section}>
-                <h3 style={styles.label}>Sortplan Files</h3>
                 <div style={styles.fileRow}>
                 {sortplans.length > 0 && (   <select
                         value={selectedSortplan}
@@ -477,14 +503,16 @@ export default function ServerConfigs({ configs, setConfigs, simulatorConfigs, s
                         {sortplans.map((sp) => {
                             const name = extractFileNameWithoutType(sp);
                             return (
-                                <option key={sp.id} value={name}>
+                                <option key={sp} value={name}>
                                     {name}
                                 </option>
                             );
                         })}
                     </select>
                 )}
+                <button onClick={updateSortplan} style={styles.button}>Set Sortplan</button>
                 </div>
+                
             </div>
         </div>
     );

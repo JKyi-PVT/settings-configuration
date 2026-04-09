@@ -1,7 +1,10 @@
 #!/usr/bin/python3
 # 03/05/2026 16:00 MST
 
+from fileinput import filename
 from operator import is_
+from turtle import update
+from xmlrpc import client
 
 import paramiko
 import time
@@ -33,24 +36,27 @@ robot_configs = ["robot-manager", "robot-diagnostics", "robot-diagnostics-bridge
 current_path = "/var/lib/appcenter/apps/"
 
 # Module-level state
-server = None
-sftp = None
-password = None
-configs = None
-server_apps = None
-simulator_configs = None
-floorplan_data = None
-floorplan_path = None
-sortplan_path = None
-barcode_sim_instances = None
+server = Any
+sftp = Any
+password = Any
+configs = Any
+server_apps = Any
+simulator_configs = Any
+floorplan_data = Any
+floorplan_path = Any
+sortplan_path = Any
+barcode_sim_instances = 0
 max_destinations = 0
 max_velocity = 0
-ip_list = None
-robot_sftp_list = None
+ip_list = Any
+robot_sftp_list = {}
 floorplan_list = {}
 sortplan_list = {}
 sorting_module_configs = {}
 frs_version = '7.1.0'
+floorplan_path_key = ()
+sortplan_path_key = ()
+robot_client_list = {}
 
 
 # Request models
@@ -62,7 +68,7 @@ class RobotPayloadRequest(BaseModel):
     robot_list: list[int]
 
 class ServerConfigChangeRequest(BaseModel):
-    setting_name: str
+    setting_name: Any
     value: Any
 
 class UpdateBarcodeSimRequest(BaseModel):
@@ -77,6 +83,9 @@ class RestartRequest(BaseModel):
 
 class RestartAllRequest(BaseModel):
     target: str
+
+class ScenarioFileRequest(BaseModel):
+    filename: str
 
 
 
@@ -117,14 +126,23 @@ def is_server_connected():
 @app.get("/emergency/create_backup")
 def create_backup():
     is_server_connected()
-    cmd = "cp -r /var/lib/appcenter /var/lib/backup_appcenter"
-    server.exec_command(cmd)
+    for file in server_apps:
+        path = f"/var/lib/appcenter/apps/{file}/config.yaml"
+        server.exec_command(f"cp {path} /var/lib/appcenter/apps/{file}/backup.yaml")
+    for instance in range(barcode_sim_instances):
+        path = f"/var/lib/appcenter/apps/qb-barcode-scanner-simulator/{frs_version}-22-04/instances/{instance + 1}/config_{instance + 1}.yaml"
+        server.exec_command(f"cp {path} /var/lib/appcenter/apps/qb-barcode-scanner-simulator/{frs_version}-22-04/instances/{instance + 1}/backup.yaml")
+
 
 @app.get("/emergency/load_backup")
 def load_backup():
     is_server_connected()
-    server.exec_command("rsync -avn --delete /var/lib/backup_appcenter/ /var/lib/appcenter/")
-    create_backup()
+    for file in server_apps:
+        path = f"/var/lib/appcenter/apps/{file}/config.yaml"
+        server.exec_command(f"mv /var/lib/appcenter/apps/{file}/backup.yaml {path}")
+    for instance in range(barcode_sim_instances):
+        path = f"/var/lib/appcenter/apps/qb-barcode-scanner-simulator/{frs_version}-22-04/instances/{instance + 1}/config_{instance + 1}.yaml"
+        server.exec_command(f"mv /var/lib/appcenter/apps/qb-barcode-scanner-simulator/{frs_version}-22-04/instances/{instance + 1}/backup.yaml {path}")
 
 def get_scenario_files(type):
     global floorplan_list, sortplan_list
@@ -139,14 +157,32 @@ def get_scenario_files(type):
 
     for file_path in files:
         file_name = file_path.split("/")[-1]
+        print(file_name)
         if type == "floorplans":
             floorplan_list[file_name] = file_path
         elif type == "sortplans":
              sortplan_list[file_name] = file_path
         list.append(file_path)
-
-    print(list)
     return list
+
+def check_qb_storage(qb_storage):
+
+    global floorplan_path, sortplan_path, floorplan_path_key, sortplan_path_key
+    
+    if "path" not in qb_storage["floorplan_file"]:
+        floorplan_path = qb_storage["floorplan_file"]
+        floorplan_path_key = ("floorplan_file")
+    else:
+        floorplan_path = qb_storage["floorplan_file"]["path"]
+        floorplan_path_key = ("floorplan_file", "path")
+    if "path" not in qb_storage["sortplan_file"]:
+        sortplan_path = qb_storage["sortplan_file"]
+        sortplan_path_key = ("sortplan_file")
+    else:
+        sortplan_path = qb_storage["sortplan_file"]["path"]
+        sortplan_path_key = ("sortplan_file", "path")
+    print(floorplan_path_key)
+
 
 @app.post("/connect")
 def connect(request: ConnectRequest):
@@ -244,7 +280,10 @@ def get_configs():
     floorplan_list = get_scenario_files("floorplans")
     sortplan_list = get_scenario_files("sortplans")
     current_sortplan = sortplan_path.split("/")[-1]
+    current_sortplan = current_sortplan.split(".")[0]
     current_floorplan = floorplan_path.split("/")[-1]
+    current_floorplan = current_floorplan.split(".")[0]
+    check_qb_storage(qb_storage)
 
     return {
         "configs": configs,
@@ -259,6 +298,26 @@ def get_configs():
         "current_sortplan": current_sortplan     
     }
 
+@app.post("/scenario/{type}")
+def update_scenario_files(type: str, request: ScenarioFileRequest):
+    if server is None:
+        raise HTTPException(status_code=400, detail="Not connected to server")
+    
+    filename = f"{request.filename}.json"
+    print(request.filename)
+    if type == "floorplan":
+        if filename not in floorplan_list:
+            raise HTTPException(status_code=404, detail=f"Floorplan '{request.filename}' not found")
+        path = floorplan_list[filename]
+        update_config("qb-storage", ServerConfigChangeRequest(setting_name=floorplan_path_key, value=path))
+    elif type == "sortplan":
+        if filename not in sortplan_list:
+            raise HTTPException(status_code=404, detail=f"Sortplan '{request.filename}' not found")
+        path = sortplan_list[filename]
+        update_config("qb-storage", ServerConfigChangeRequest(setting_name=sortplan_path_key, value=path))
+    else:
+        raise HTTPException(status_code=400, detail=f"Invalid scenario type '{type}'")
+    
 
 
 @app.post("/configs/{application}")
@@ -326,6 +385,7 @@ def restart_service(service: str, request: RestartRequest, client=None):
         success = False
         while success is False and attempts < 3:
             try:
+                print("Restarting Service: " + service)
                 _, ssh_stdout, ssh_stderr = client.exec_command(cmd)
                 line = ssh_stdout.read().decode().strip().split(" ")[0]
                 ssh_stdin, ssh_stdout, ssh_stderr = client.exec_command("sudo -S -p '' systemctl restart " + line)
@@ -337,6 +397,7 @@ def restart_service(service: str, request: RestartRequest, client=None):
                 print(str(e))
                 time.sleep(1)
                 attempts = attempts + 1
+        print("Done!")
         return {"status": "done", "service": service}
 
 
@@ -378,7 +439,7 @@ def restart_all_services(request: RestartAllRequest, client=None):
                     time.sleep(1)
                     Attempts = Attempts + 1 
 
-@app.get("robots/service/{robot_number}")
+@app.get("/robots/service/{robot_number}")
 def check_robot_services(robot_number: int):
     if server is None:
         raise HTTPException(status_code=400, detail="Not connected to server")
@@ -406,7 +467,7 @@ def check_robot_services(robot_number: int):
             raise HTTPException(status_code=500, detail=str(e))
         return all_services
     
-@app.post("restart-robot/{robot_number}/{service}")
+@app.post("/restart-robot/{robot_number}/{service}")
 def restart_robot_service(robot_number: int, service: str):
     if server is None:
         raise HTTPException(status_code=400, detail="Not connected to server")
@@ -426,7 +487,7 @@ def restart_robot_service(robot_number: int, service: str):
         return {"status": "done", "robot": robot_ip, "service": service}
     
 
-@app.post("restart-all/robots/{robot_number}")
+@app.post("/restart-all/robots/{robot_number}")
 def restart_robot_services(robot_number: int):
     if server is None:
         raise HTTPException(status_code=400, detail="Not connected to server")
@@ -485,7 +546,7 @@ def get_active_robots():
 
 @app.post("/robots/connect")
 def connect_robots():
-    global ip_list, robot_sftp_list, sorting_module_configs
+    global ip_list, robot_sftp_list, sorting_module_configs, robot_client_list
 
     if server is None:
         raise HTTPException(status_code=400, detail="Not connected to server")
@@ -506,6 +567,7 @@ def connect_robots():
         robot_client = paramiko.SSHClient()
         robot_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         robot_ip = "192.168.8." + str(number + 30)
+        robot_client_list[robot_ip] = robot_client
 
         transport = server.get_transport()
         local_addr = ('127.0.0.1', 22)
@@ -528,7 +590,8 @@ def connect_robots():
             failed.append(robot_ip)
             continue
 
-    return {"connected": list(robot_sftp_list.keys()), "failed": failed}
+    payload_states = {ip: sorting_module_configs[ip].get("payload_detection", False) for ip in robot_sftp_list}
+    return {"connected": list(robot_sftp_list.keys()), "failed": failed, "payload_states": payload_states}
 
 
 @app.post("/robots/payload-detection")
@@ -539,6 +602,7 @@ def payload_detection(request: RobotPayloadRequest):
     failed = []
     for robot in request.robot_list:
         robot_ip = '192.168.8.' + str(int(robot + 30))
+        client = robot_client_list.get(robot_ip)
         if robot_ip not in sorting_module_configs:
             failed.append(robot_ip)
             continue
@@ -550,6 +614,9 @@ def payload_detection(request: RobotPayloadRequest):
             yaml.preserve_quotes = True
             with robot_sftp_list[robot_ip].open("/var/lib/appcenter/apps/robot-sorting-module/config.yaml", 'w') as file:
                 yaml.dump(data, file)
+
+            restart_service("robot-sorting-module", RestartRequest(target="robot"), client=client)
+            
         except Exception as e:
             print("Failed to set payload detection on " + robot_ip + ": " + str(e))
             failed.append(robot_ip)

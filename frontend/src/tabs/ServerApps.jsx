@@ -1,7 +1,7 @@
-// 03/19/2026 10:00 MST
+// 04/03/2026 10:00 MST
 
 import { useState, useEffect } from "react";
-import { checkServices, restartService, restartAllServices, restartAllRobots, connectRobots, restartRobotService } from "../api";
+import { checkServices, checkRobotServices, restartService, restartAllServices, restartAllRobots, connectRobots, restartRobotService } from "../api";
 
 const ROBOT_APPS = [
     "robot-manager",
@@ -10,14 +10,15 @@ const ROBOT_APPS = [
     "robot-diagnostics-bridge",
 ];
 
-export default function ServerApps({ serverApps }) {
+export default function ServerApps({ serverApps, connectedRobots, setConnectedRobots, payloadState, setPayloadState }) {
     const [serviceStatus, setServiceStatus] = useState({});
+    const [robotServiceStatus, setRobotServiceStatus] = useState({});
     const [statusMsg, setStatusMsg] = useState(null);
     const [restartingAll, setRestartingAll] = useState(false);
     const [restarting, setRestarting] = useState({});
-    const [connectedRobots, setConnectedRobots] = useState([]);
     const [selectedRobot, setSelectedRobot] = useState(null);
     const [connectingRobots, setConnectingRobots] = useState(false);
+    const [fetchingRobotStatus, setFetchingRobotStatus] = useState(false);
 
     useEffect(() => {
         fetchServiceStatus();
@@ -29,6 +30,27 @@ export default function ServerApps({ serverApps }) {
             setServiceStatus(data);
         } catch (e) {
             setStatusMsg({ ok: false, msg: "Could not fetch service status: " + e.message });
+        }
+    }
+
+    async function fetchRobotServiceStatus(robotNumber) {
+        setFetchingRobotStatus(true);
+        try {
+            const data = await checkRobotServices(robotNumber);
+            setRobotServiceStatus(data);
+        } catch (e) {
+            setStatusMsg({ ok: false, msg: "Could not fetch robot service status: " + e.message });
+        } finally {
+            setFetchingRobotStatus(false);
+        }
+    }
+
+    async function handleSelectRobot(value) {
+        const robotId = value === "" ? null : parseInt(value);
+        setSelectedRobot(robotId);
+        setRobotServiceStatus({});
+        if (robotId !== null) {
+            await fetchRobotServiceStatus(robotId);
         }
     }
 
@@ -65,8 +87,9 @@ export default function ServerApps({ serverApps }) {
         setRestarting((prev) => ({ ...prev, [service]: true }));
         setStatusMsg(null);
         try {
-            await restartRobotService(service);
+            await restartRobotService(selectedRobot, service);
             setStatusMsg({ ok: true, msg: `${service} restarted on robot ${selectedRobot}.` });
+            await fetchRobotServiceStatus(selectedRobot);
         } catch (e) {
             setStatusMsg({ ok: false, msg: `Failed to restart ${service} on robot ${selectedRobot}: ` + e.message });
         } finally {
@@ -81,6 +104,7 @@ export default function ServerApps({ serverApps }) {
         try {
             await restartAllRobots(selectedRobot);
             setStatusMsg({ ok: true, msg: `All robot services restarted on robot ${selectedRobot}.` });
+            await fetchRobotServiceStatus(selectedRobot);
         } catch (e) {
             setStatusMsg({ ok: false, msg: `Failed to restart robot services: ` + e.message });
         } finally {
@@ -95,6 +119,17 @@ export default function ServerApps({ serverApps }) {
             const data = await connectRobots();
             setConnectedRobots(data.connected);
             setSelectedRobot(null);
+            setRobotServiceStatus({});
+
+            // Initialize shared payload state from connect response
+            const initialPayloadState = {};
+            if (data.payload_states) {
+                for (const [ip, state] of Object.entries(data.payload_states)) {
+                    const id = parseInt(ip.split(".")[3]) - 30;
+                    initialPayloadState[id] = state;
+                }
+            }
+            setPayloadState(initialPayloadState);
         } catch (e) {
             setStatusMsg({ ok: false, msg: "Could not connect to robots: " + e.message });
         } finally {
@@ -127,12 +162,17 @@ export default function ServerApps({ serverApps }) {
     }
 
     function RobotServiceRow({ service }) {
-        const active = serviceStatus && serviceStatus[service] === 1;
+        const active = robotServiceStatus && robotServiceStatus[service] === 1;
         const disabled = restarting[service] || selectedRobot === null;
+        const dotColor = selectedRobot === null
+            ? "#bbb"
+            : fetchingRobotStatus
+                ? "#f0ad4e"
+                : active ? "#2ecc71" : "#bbb";
         return (
             <div style={styles.serviceRow}>
                 <div style={styles.serviceLeft}>
-                    <span style={{ ...styles.dot, backgroundColor: active ? "#2ecc71" : "#bbb" }} />
+                    <span style={{ ...styles.dot, backgroundColor: dotColor }} />
                     <span style={styles.serviceName}>{service}</span>
                 </div>
                 <button
@@ -206,7 +246,7 @@ export default function ServerApps({ serverApps }) {
                     {connectedRobots.length > 0 && (
                         <select
                             value={selectedRobot ?? ""}
-                            onChange={(e) => setSelectedRobot(e.target.value === "" ? null : parseInt(e.target.value))}
+                            onChange={(e) => handleSelectRobot(e.target.value)}
                             style={styles.select}
                         >
                             <option value="">Select a robot</option>
@@ -220,6 +260,9 @@ export default function ServerApps({ serverApps }) {
                     )}
                     {connectedRobots.length === 0 && !connectingRobots && (
                         <span style={styles.dimText}>No robots connected.</span>
+                    )}
+                    {fetchingRobotStatus && (
+                        <span style={styles.dimText}>Fetching status...</span>
                     )}
                 </div>
                 {ROBOT_APPS.map((service) => (

@@ -37,7 +37,7 @@ def find_paths():
         if "path" not in data["floorplan_file"]:
             print(data["floorplan_file"])
 
-name = input("Enter a string: ")
+# name = input("Enter a string: ")
 
 # match = "appcenter"
 
@@ -45,14 +45,14 @@ name = input("Enter a string: ")
 # stop = len(match)
 # print(name[start:start+stop])
 
-result = subprocess.Popen(["systemctl", "list-units", "--type=service"], stdout=subprocess.PIPE, text=True, bufsize=1)
+# result = subprocess.Popen(["systemctl", "list-units", "--type=service"], stdout=subprocess.PIPE, text=True, bufsize=1)
 
-grep_process = subprocess.Popen(["grep", name], stdin=result.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=1)
+# grep_process = subprocess.Popen(["grep", name], stdin=result.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=1)
 
-result.stdout.close()
+# result.stdout.close()
 
-output, error = grep_process.communicate()
-print(output.strip().split(" ")[0])
+# output, error = grep_process.communicate()
+# print(output.strip().split(" ")[0])
 
 # all_raw_service = result.stdout
 
@@ -72,3 +72,22 @@ print(output.strip().split(" ")[0])
 
 
 # parse_json()
+
+
+mnested_dict = {
+    "fruit": {
+        "apple": {
+            "color": "red",
+            "taste": "sweet"
+        }
+    },
+    "vegetable": 
+        "carrot"
+    
+}
+key = ()
+variable = input("Enter a: ")
+if variable == "a":
+    key = ("vegetable")
+
+print(mnested_dict[key])

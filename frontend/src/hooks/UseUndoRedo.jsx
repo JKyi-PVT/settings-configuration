@@ -1,10 +1,8 @@
-// 03/20/2026 10:00 MST
+// 03/30/2026 10:00 MST
 
 import { useState, useRef } from "react";
 
 export function useUndoRedo(onRestore) {
-    // Always keep the latest onRestore in a ref so confirmUndo/redo
-    // never close over a stale version of it
     const onRestoreRef = useRef(onRestore);
     onRestoreRef.current = onRestore;
 
@@ -13,13 +11,10 @@ export function useUndoRedo(onRestore) {
     const [current, setCurrent] = useState(null);
     const [pendingUndo, setPendingUndo] = useState(null);
 
-    // Call once after configs are first loaded to establish the baseline
-    // snapshot that the first save can be undone back to
     function initState(snapshot) {
         setCurrent(snapshot);
     }
 
-    // Call after every successful save
     function pushState(snapshot) {
         if (current !== null) {
             setUndoStack(prev => [...prev, current]);
@@ -28,14 +23,18 @@ export function useUndoRedo(onRestore) {
         setRedoStack([]);
     }
 
-    // Opens the confirmation modal — does not restore yet
+    function resetHistory() {
+        setUndoStack([]);
+        setRedoStack([]);
+        setCurrent(null);
+    }
+
     function undo() {
         if (undoStack.length === 0) return;
         const previous = undoStack[undoStack.length - 1];
         setPendingUndo({ from: current, to: previous });
     }
 
-    // Called when the user confirms the undo modal
     async function confirmUndo() {
         if (!pendingUndo) return;
         const previous = pendingUndo.to;
@@ -50,7 +49,6 @@ export function useUndoRedo(onRestore) {
         setPendingUndo(null);
     }
 
-    // Redo has no confirmation — it re-applies a previously undone save
     async function redo() {
         if (redoStack.length === 0) return;
         const next = redoStack[redoStack.length - 1];
@@ -63,6 +61,7 @@ export function useUndoRedo(onRestore) {
     return {
         initState,
         pushState,
+        resetHistory,
         undo,
         redo,
         canUndo: undoStack.length > 0,

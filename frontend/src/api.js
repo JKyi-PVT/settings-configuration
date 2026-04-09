@@ -17,13 +17,18 @@ export async function connectToServer(password) {
     return handleResponse(res);
 }
 
-export async function getScenarioFiles(type) {
-    const res = await fetch(`${BASE_URL}/scenario/${type}`);
+export async function getConfigs() {
+    const res = await fetch(`${BASE_URL}/configs`);
     return handleResponse(res);
 }
 
-export async function getConfigs() {
-    const res = await fetch(`${BASE_URL}/configs`);
+export async function createBackup() {
+    const res = await fetch(`${BASE_URL}/emergency/create_backup`);
+    return handleResponse(res);
+}
+
+export async function loadBackup(){
+    const res = await fetch(`${BASE_URL}/emergency/load_backup`);
     return handleResponse(res);
 }
 
@@ -75,6 +80,15 @@ export async function updateSpeed(value) {
     return handleResponse(res);
 }
 
+export async function updateScenarioFiles(type, filename) {
+    const res = await fetch(`${BASE_URL}/scenario/${type}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filename }),
+    });
+    return handleResponse(res);
+}
+
 export async function checkServices() {
     const res = await fetch(`${BASE_URL}/server/configs/service`);
     return handleResponse(res);
@@ -86,6 +100,11 @@ export async function restartService(service, target = "server") {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ target }),
     });
+    return handleResponse(res);
+}
+
+export async function checkRobotServices(robotNumber) {
+    const res = await fetch(`${BASE_URL}/robots/service/${robotNumber}`);
     return handleResponse(res);
 }
 

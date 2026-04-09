@@ -1,4 +1,4 @@
-// 03/20/2026 10:00 MST
+// 04/03/2026 10:00 MST
 
 import { useState, useEffect, useRef } from "react";
 import { connectRobots, setPayloadDetection, updateSpeed } from "../api";
@@ -28,13 +28,11 @@ function computeDiff(from, to) {
     return changes;
 }
 
-export default function RobotConfigs({ maxVelocity, onHistoryChange }) {
-    const [connectedRobots, setConnectedRobots] = useState([]);
+export default function RobotConfigs({ maxVelocity, connectedRobots, setConnectedRobots, payloadState, setPayloadState, onHistoryChange, onResetHistoryReady }) {
     const [failedRobots, setFailedRobots] = useState([]);
     const [selectedRobots, setSelectedRobots] = useState([]);
     const [selectAll, setSelectAll] = useState(false);
     const [speed, setSpeed] = useState(maxVelocity ?? 1.0);
-    const [payloadState, setPayloadState] = useState({});
 
     const [connectStatus, setConnectStatus] = useState(null);
     const [payloadStatus, setPayloadStatus] = useState(null);
@@ -66,6 +64,7 @@ export default function RobotConfigs({ maxVelocity, onHistoryChange }) {
     const {
         initState,
         pushState,
+        resetHistory,
         undo,
         redo,
         canUndo,
@@ -75,6 +74,11 @@ export default function RobotConfigs({ maxVelocity, onHistoryChange }) {
         cancelUndo,
         hasHistory,
     } = useUndoRedo(onRestore);
+
+    // Expose resetHistory to App.jsx
+    useEffect(() => {
+        if (onResetHistoryReady) onResetHistoryReady(resetHistory);
+    }, []);
 
     // Initialize baseline snapshot on first render
     useEffect(() => {
@@ -89,6 +93,14 @@ export default function RobotConfigs({ maxVelocity, onHistoryChange }) {
         onHistoryChange(hasHistory);
     }, [hasHistory]);
 
+    // Keep selectAll in sync if connectedRobots changes from another tab
+    useEffect(() => {
+        if (connectedRobots.length === 0) {
+            setSelectedRobots([]);
+            setSelectAll(false);
+        }
+    }, [connectedRobots]);
+
     function currentSnapshot() {
         return { speed, payloadState: { ...payloadState } };
     }
@@ -102,6 +114,17 @@ export default function RobotConfigs({ maxVelocity, onHistoryChange }) {
             setFailedRobots(data.failed);
             setSelectedRobots([]);
             setSelectAll(false);
+
+            // Initialize shared payload state from connect response
+            const initialPayloadState = {};
+            if (data.payload_states) {
+                for (const [ip, state] of Object.entries(data.payload_states)) {
+                    const id = parseInt(ip.split(".")[3]) - 30;
+                    initialPayloadState[id] = state;
+                }
+            }
+            setPayloadState(initialPayloadState);
+
             setConnectStatus({ ok: true, msg: `Connected: ${data.connected.length} robot(s). Failed: ${data.failed.length}.` });
         } catch (e) {
             setConnectStatus({ ok: false, msg: e.message });
@@ -230,6 +253,7 @@ export default function RobotConfigs({ maxVelocity, onHistoryChange }) {
                         </div>
                         {connectedRobots.map((ip) => {
                             const id = extractRobotId(ip);
+                            const payload = payloadState[id];
                             return (
                                 <div key={ip} style={styles.checkRow}>
                                     <input
@@ -240,9 +264,13 @@ export default function RobotConfigs({ maxVelocity, onHistoryChange }) {
                                     />
                                     <label htmlFor={`robot-${id}`} style={styles.checkLabel}>
                                         Robot {id} ({ip})
-                                        {payloadState[id] !== undefined && (
-                                            <span style={styles.payloadBadge}>
-                                                Payload: {payloadState[id] ? "On" : "Off"}
+                                        {payload !== undefined && (
+                                            <span style={{
+                                                ...styles.payloadBadge,
+                                                backgroundColor: payload ? "#d4efdf" : "#fde8e8",
+                                                color: payload ? "#1e8449" : "#c0392b",
+                                            }}>
+                                                Payload: {payload ? "On" : "Off"}
                                             </span>
                                         )}
                                     </label>
@@ -413,10 +441,9 @@ const styles = {
     },
     payloadBadge: {
         fontSize: "11px",
-        color: "#888",
-        backgroundColor: "#f0f0f0",
-        padding: "2px 6px",
+        padding: "2px 8px",
         borderRadius: "10px",
+        fontWeight: "600",
     },
     dimText: {
         fontSize: "14px",

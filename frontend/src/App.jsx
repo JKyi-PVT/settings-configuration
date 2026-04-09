@@ -1,7 +1,7 @@
-// 03/20/2026 10:00 MST
+// 04/03/2026 10:00 MST
 
 import { useState, useEffect, useRef } from "react";
-import { connectToServer, getConfigs } from "./api";
+import { connectToServer, getConfigs, createBackup, loadBackup } from "./api";
 import ServerApps from "./tabs/ServerApps";
 import ServerConfigs from "./tabs/ServerConfigs";
 import RobotConfigs from "./tabs/RobotConfigs";
@@ -23,6 +23,16 @@ export default function App() {
     const [sortplans, setSortplans] = useState([]);
     const [currentFloorplan, setCurrentFloorplan] = useState("");
     const [currentSortplan, setCurrentSortplan] = useState("");
+
+    // Shared robot state across tabs
+    const [connectedRobots, setConnectedRobots] = useState([]);
+    const [payloadState, setPayloadState] = useState({});
+
+    const [backupStatus, setBackupStatus] = useState(null);
+
+    // Refs to the resetHistory functions exposed by each tab
+    const resetServerConfigsHistory = useRef(null);
+    const resetRobotConfigsHistory = useRef(null);
 
     // Tracks whether any tab has undo history — used for beforeunload warning
     const tabHistoriesRef = useRef({ serverConfigs: false, robotConfigs: false });
@@ -56,15 +66,37 @@ export default function App() {
             setMaxVelocity(data.max_velocity);
             setMaxDestinations(data.max_destinations);
             setServerApps(data.server_apps);
-            setFloorplans(data.floorplans);
-            setSortplans(data.sortplans);
-            setCurrentFloorplan(data.current_floorplan);
-            setCurrentSortplan(data.current_sortplan);
+            setFloorplans(data.floorplans ?? []);
+            setSortplans(data.sortplans ?? []);
+            setCurrentFloorplan(data.current_floorplan ?? "");
+            setCurrentSortplan(data.current_sortplan ?? "");
             setConnected(true);
         } catch (e) {
             setError(e.message);
         } finally {
             setLoading(false);
+        }
+    }
+
+    async function handleCreateBackup() {
+        setBackupStatus(null);
+        try {
+            await createBackup();
+            setBackupStatus({ ok: true, msg: "Backup created." });
+        } catch (e) {
+            setBackupStatus({ ok: false, msg: e.message });
+        }
+    }
+
+    async function handleLoadBackup() {
+        setBackupStatus(null);
+        try {
+            await loadBackup();
+            if (resetServerConfigsHistory.current) resetServerConfigsHistory.current();
+            if (resetRobotConfigsHistory.current) resetRobotConfigsHistory.current();
+            setBackupStatus({ ok: true, msg: "Backup loaded." });
+        } catch (e) {
+            setBackupStatus({ ok: false, msg: e.message });
         }
     }
 
@@ -99,7 +131,22 @@ export default function App() {
 
     return (
         <div style={styles.appWrapper}>
-            <h1 style={styles.appTitle}>Prime Vision Technology Settings / Configuration UI</h1>
+            <div style={styles.headerBar}>
+                <h1 style={styles.appTitle}>Prime Vision Technology Settings / Configuration UI</h1>
+                <div style={styles.headerRight}>
+                    {backupStatus && (
+                        <span style={{ fontSize: "12px", color: backupStatus.ok ? "green" : "#c0392b" }}>
+                            {backupStatus.msg}
+                        </span>
+                    )}
+                    <button onClick={handleCreateBackup} style={styles.backupBtn}>
+                        Create Backup
+                    </button>
+                    <button onClick={handleLoadBackup} style={styles.loadBackupBtn}>
+                        Load Backup
+                    </button>
+                </div>
+            </div>
             <div style={styles.tabBar}>
                 {tabs.map((tab, i) => (
                     <button
@@ -115,7 +162,15 @@ export default function App() {
                 ))}
             </div>
             <div style={styles.tabContent}>
-                {activeTab === 0 && <ServerApps serverApps={serverApps} />}
+                {activeTab === 0 && (
+                    <ServerApps
+                        serverApps={serverApps}
+                        connectedRobots={connectedRobots}
+                        setConnectedRobots={setConnectedRobots}
+                        payloadState={payloadState}
+                        setPayloadState={setPayloadState}
+                    />
+                )}
                 {activeTab === 1 && (
                     <ServerConfigs
                         configs={configs}
@@ -129,12 +184,18 @@ export default function App() {
                         currentFloorplan={currentFloorplan}
                         currentSortplan={currentSortplan}
                         onHistoryChange={(has) => handleHistoryChange("serverConfigs", has)}
+                        onResetHistoryReady={(fn) => { resetServerConfigsHistory.current = fn; }}
                     />
                 )}
                 {activeTab === 2 && (
                     <RobotConfigs
                         maxVelocity={maxVelocity}
+                        connectedRobots={connectedRobots}
+                        setConnectedRobots={setConnectedRobots}
+                        payloadState={payloadState}
+                        setPayloadState={setPayloadState}
                         onHistoryChange={(has) => handleHistoryChange("robotConfigs", has)}
+                        onResetHistoryReady={(fn) => { resetRobotConfigsHistory.current = fn; }}
                     />
                 )}
             </div>
@@ -201,11 +262,42 @@ const styles = {
         width: "100vw",
         boxSizing: "border-box",
     },
+    headerBar: {
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        marginBottom: "16px",
+    },
     appTitle: {
         fontSize: "20px",
         fontWeight: "700",
         color: "#c0392b",
-        marginBottom: "16px",
+        margin: 0,
+    },
+    headerRight: {
+        display: "flex",
+        alignItems: "center",
+        gap: "10px",
+    },
+    backupBtn: {
+        padding: "7px 14px",
+        fontSize: "13px",
+        backgroundColor: "#27ae60",
+        color: "#fff",
+        border: "none",
+        borderRadius: "4px",
+        cursor: "pointer",
+        fontWeight: "600",
+    },
+    loadBackupBtn: {
+        padding: "7px 14px",
+        fontSize: "13px",
+        backgroundColor: "#e67e22",
+        color: "#fff",
+        border: "none",
+        borderRadius: "4px",
+        cursor: "pointer",
+        fontWeight: "600",
     },
     tabBar: {
         display: "flex",
